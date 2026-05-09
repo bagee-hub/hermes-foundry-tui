@@ -45,6 +45,30 @@ azd ai agent invoke --local --protocol invocations "hello"
 
 The local agent starts on port `8088` by default. The current implementation is only an Invocations-shaped stub; the Hermes hosted runtime gets wired in the next phase.
 
+## Local TUI proof slice
+
+The first end-to-end slice keeps the Hermes React/Ink TUI unchanged and swaps only the Python TUI backend:
+
+```text
+Hermes TUI -> tui_gateway.entry -> Foundry proxy backend -> local azd Invocations agent
+```
+
+Run it with two terminals. First start the local hosted agent:
+
+```bash
+azd ai agent run
+```
+
+Then launch the TUI in Foundry mode:
+
+```bash
+./scripts/run-foundry-tui.sh
+```
+
+The helper defaults to `http://127.0.0.1:8088`, `hermes-foundry-agent`, and the local azd path `HERMES_FOUNDRY_INVOCATIONS_PATH=/invocations` for localhost endpoints. Override with `HERMES_FOUNDRY_ENDPOINT`, `HERMES_FOUNDRY_INVOCATIONS_PATH`, `HERMES_FOUNDRY_AGENT_NAME`, or `HERMES_FOUNDRY_WORKSPACE_KEY` if needed. Cloud endpoints can omit `HERMES_FOUNDRY_INVOCATIONS_PATH` to use the default Foundry route.
+
+Supported in this slice: TUI startup, command catalog, config hydration, new session, `/status`, prompt submission, streamed `message.*` and `status.update` events, interrupt, title, usage, and clear/new session. Local-only capabilities such as shell commands, image attach, resume, branch, and compress return explicit unsupported messages.
+
 ## Cloud deployment
 
 ```bash

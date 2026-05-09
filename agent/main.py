@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -59,6 +60,13 @@ async def handle_invoke(request: Request):
     session_id = getattr(request.state, "session_id", "local")
     invocation_id = getattr(request.state, "invocation_id", "local")
 
+    response_text = (
+        "Foundry local Hermes stub received your prompt:\n\n"
+        f"> {text}\n\n"
+        "This proves the Hermes TUI can route a turn through the local "
+        "Azure AI Foundry Invocations host and render TUI-shaped events."
+    )
+
     async def events() -> AsyncIterator[str]:
         started = {
             "type": "status.update",
@@ -69,11 +77,20 @@ async def handle_invoke(request: Request):
         }
         yield f"data: {json.dumps(started)}\n\n"
         yield f"data: {json.dumps({'type': 'message.start', 'payload': {}})}\n\n"
+        for chunk in response_text.split(" "):
+            yield f"data: {json.dumps({'type': 'message.delta', 'payload': {'text': chunk + ' '}})}\n\n"
+            await asyncio.sleep(0.03)
         complete = {
             "type": "message.complete",
             "payload": {
-                "status": "incomplete",
-                "text": f"Hermes hosted runtime is not wired yet. Received: {text}",
+                "status": "complete",
+                "text": response_text,
+                "usage": {
+                    "calls": 1,
+                    "input": len(text.split()),
+                    "output": len(response_text.split()),
+                    "total": len(text.split()) + len(response_text.split()),
+                },
             },
         }
         yield f"data: {json.dumps(complete)}\n\n"
