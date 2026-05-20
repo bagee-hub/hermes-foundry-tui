@@ -46,8 +46,10 @@ fi
 
 if [[ -z "${HERMES_FOUNDRY_BEARER_TOKEN:-}" ]] && ! "$HERMES_PYTHON" -c 'import azure.identity' >/dev/null 2>&1; then
   echo "Foundry TUI auth requires azure-identity in the Hermes Python environment." >&2
-  echo "Run: cd third_party/hermes && uv sync" >&2
-  echo "Or set HERMES_PYTHON to a synced Hermes interpreter." >&2
+  echo "Run: cd third_party/hermes && uv sync --extra azure-identity" >&2
+  echo "(azure-identity is declared as an optional extra in hermes-agent's pyproject.toml," >&2
+  echo " so a plain 'uv sync' does not install it.)" >&2
+  echo "Or set HERMES_PYTHON to a synced Hermes interpreter that already has azure-identity." >&2
   exit 1
 fi
 
@@ -58,8 +60,10 @@ fi
 
 cd "$TUI_DIR"
 
-if [[ ! -f packages/hermes-ink/dist/entry-exports.js ]]; then
-  npm run build --prefix packages/hermes-ink
-fi
+# Always rebuild the @hermes/ink bundle: esbuild is fast (~50ms) and the
+# previous "skip if dist exists" guard let a stale bundle linger after the
+# Hermes submodule was bumped, surfacing as missing-export errors like
+# "does not provide an export named 'wrapAnsi'".
+npm run build --prefix packages/hermes-ink
 
 exec npm start

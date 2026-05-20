@@ -26,7 +26,7 @@ cd hermes-foundry-tui
 
 If the repo was cloned without submodules, `./scripts/init-hermes.sh` will fetch `third_party/hermes`.
 
-Hermes changes for this PoC live on the `foundry-tui-poc` branch of `https://github.com/glennc/hermes-agent.git`. Work inside `third_party/hermes`, commit and push that branch, then update the submodule pointer in this repo.
+Hermes changes for this PoC live on the `foundry-tui-poc-clean` branch of `https://github.com/glennc/hermes-agent.git`. Work inside `third_party/hermes`, commit and push that branch, then update the submodule pointer in this repo.
 
 ## Local agent testing
 
@@ -83,7 +83,7 @@ Prepare the local dependencies once:
 ```bash
 az login
 cd third_party/hermes
-uv sync
+uv sync --extra azure-identity   # azure-identity is an optional extra in hermes-agent; required for Foundry auth
 cd ui-tui
 npm install
 cd ../../..
