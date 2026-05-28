@@ -3,7 +3,9 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HERMES_GATEWAY_SRC_ROOT=/app/third_party/hermes \
-    HERMES_GATEWAY_PYTHON=/usr/local/bin/python
+    HERMES_GATEWAY_PYTHON=/usr/local/bin/python \
+    HERMES_CHILD_HOME=/home/appuser/.hermes \
+    HERMES_GATEWAY_CWD=/home/appuser/workspace
 
 # Tools the Hermes agent reaches for inside the sandbox. No SSH access
 # exists to this container, so nothing here is for humans — every
@@ -44,7 +46,16 @@ RUN pip install --no-cache-dir /app/third_party/hermes
 
 COPY agent /app/agent
 
-RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app \
+    && install -d -o appuser -g appuser -m 0755 /home/appuser/.hermes \
+    && install -d -o appuser -g appuser -m 0755 /home/appuser/workspace
+COPY agent/hermes-defaults/ /tmp/hermes-defaults/
+RUN test -f /tmp/hermes-defaults/config.yaml \
+    || (echo "agent/hermes-defaults/config.yaml is missing; run azd package/deploy or scripts/render-hermes-config.sh before building." >&2; exit 1) \
+    && install -o appuser -g appuser -m 0644 /tmp/hermes-defaults/config.yaml /home/appuser/.hermes/config.yaml \
+    && rm -rf /tmp/hermes-defaults
+
 USER appuser
 WORKDIR /app/agent
 

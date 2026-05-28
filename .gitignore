@@ -4,6 +4,8 @@
 .azure/
 .env
 .env.*
+agent/hermes-defaults/*
+!agent/hermes-defaults/.gitkeep
 
 # Python
 __pycache__/

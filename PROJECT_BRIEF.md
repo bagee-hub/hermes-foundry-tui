@@ -54,7 +54,7 @@ The local proxy obtains a short-lived bearer token for:
   https://ai.azure.com/.default
 
 using DefaultAzureCredential, which should work with Azure CLI login for local
-developer use. The signed-in user or group needs project-scoped Azure AI User
+developer use. The signed-in user or group needs project-scoped Foundry User
 permission on the Foundry project. Persist endpoint, agent name, and workspace
 configuration; do not persist bearer tokens.
 

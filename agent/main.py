@@ -6,6 +6,9 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
+import uuid
 from collections import deque
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -21,8 +24,11 @@ _GATEWAY_READY_TIMEOUT_S = 45.0
 _RPC_RESPONSE_TIMEOUT_S = 60.0
 _RPC_STREAM_IDLE_TIMEOUT_S = 15 * 60.0
 _DEFAULT_EVENT_BUFFER_SIZE = 1000
+_DEFAULT_MAINTENANCE_TIMEOUT_S = 9 * 60.0
+_DEFAULT_MAINTENANCE_HISTORY_MAX_BYTES = 1024 * 1024
 _BUFFER_SHUTDOWN = object()
 _BUFFER_OVERFLOW = object()
+_maintenance_process_lock = threading.Lock()
 
 
 def _event_buffer_capacity() -> int:
@@ -131,63 +137,48 @@ def _first_env(*names: str) -> str:
     return ""
 
 
-def _normalize_foundry_base_url(value: str) -> str:
-    base_url = value.strip().rstrip("/")
-    if not base_url:
-        return ""
-
-    lowered = base_url.lower()
-    if lowered.endswith("/openai/v1"):
-        return base_url
-    if lowered.endswith("/openai"):
-        return f"{base_url}/v1"
-    if ".openai.azure.com" in lowered:
-        return f"{base_url}/openai/v1"
-    return base_url
+def _positive_float(value: Any, default: float, *, minimum: float = 1.0) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= minimum else default
 
 
-def _foundry_child_model_config() -> dict[str, Any] | None:
-    deployment_name = _first_env(
-        "HERMES_FOUNDRY_MODEL_DEPLOYMENT_NAME",
-        "AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME",
-        "AZURE_AI_MODEL_DEPLOYMENT_NAME",
-        "AZURE_OPENAI_DEPLOYMENT_NAME",
-        "AZURE_OPENAI_DEPLOYMENT",
-    )
-    base_url = _normalize_foundry_base_url(
-        _first_env(
-            "HERMES_FOUNDRY_BASE_URL",
-            "AZURE_FOUNDRY_BASE_URL",
-            "AZURE_OPENAI_ENDPOINT",
-        )
-    )
-    if not deployment_name or not base_url:
-        return None
-
-    api_mode = _first_env(
-        "HERMES_FOUNDRY_MODEL_API_MODE",
-        "AZURE_FOUNDRY_MODEL_API_MODE",
-        "HERMES_FOUNDRY_API_MODE",
-    ) or "chat_completions"
-    auth_mode = _first_env(
-        "HERMES_FOUNDRY_AUTH_MODE",
-        "AZURE_FOUNDRY_AUTH_MODE",
-        "AZURE_FOUNDRY_MODEL_AUTH_MODE",
-    ) or "default_azure_credential"
-
-    return {
-        "model": {
-            "provider": "azure-foundry",
-            "default": deployment_name,
-            "base_url": base_url,
-            "api_mode": api_mode,
-            "auth_mode": auth_mode,
-        }
-    }
+def _positive_int(value: Any, default: int, *, minimum: int = 1) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= minimum else default
 
 
 def _is_foundry_hosted() -> bool:
     return bool(os.environ.get("FOUNDRY_HOSTING_ENVIRONMENT", "").strip())
+
+
+def _user_home_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    home = (os.environ.get("HOME") or "").strip()
+    if home:
+        candidates.append(Path(home).expanduser())
+    try:
+        import pwd
+
+        passwd_home = pwd.getpwuid(os.getuid()).pw_dir
+    except (ImportError, KeyError, OSError):
+        passwd_home = ""
+    if passwd_home:
+        candidates.append(Path(passwd_home).expanduser())
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key not in seen:
+            deduped.append(candidate)
+            seen.add(key)
+    return deduped
 
 
 def _default_child_hermes_home() -> Path:
@@ -196,7 +187,12 @@ def _default_child_hermes_home() -> Path:
         return Path(configured).expanduser()
 
     if _is_foundry_hosted():
-        return Path.home() / ".hermes"
+        for home in _user_home_candidates():
+            hermes_home = home / ".hermes"
+            if _ensure_writable_directory(hermes_home):
+                return hermes_home
+        checked = ", ".join(str(home / ".hermes") for home in _user_home_candidates())
+        raise RuntimeError(f"No writable Foundry Hermes home found. Checked: {checked}")
 
     cache_root = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
     return cache_root / "hermes-foundry-tui" / "hermes-home"
@@ -205,11 +201,6 @@ def _default_child_hermes_home() -> Path:
 def _prepare_child_hermes_home() -> Path:
     hermes_home = _default_child_hermes_home()
     hermes_home.mkdir(parents=True, exist_ok=True)
-
-    config = _foundry_child_model_config()
-    if config is not None:
-        config_path = hermes_home / "config.yaml"
-        config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     return hermes_home
 
 
@@ -291,17 +282,130 @@ def _choose_gateway_python(hermes_root: Path) -> str:
     )
 
 
-def _default_gateway_cwd(hermes_root: Path) -> Path:
+def _ensure_writable_directory(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f".hermes-write-test-{os.getpid()}"
+        fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+        probe.unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
+
+
+def _default_gateway_cwd(hermes_root: Path, hermes_home: Path | None = None) -> Path:
     configured = (os.environ.get("HERMES_GATEWAY_CWD") or os.environ.get("HERMES_CWD") or "").strip()
     if configured:
         return Path(configured).expanduser()
     if _is_foundry_hosted():
-        workspace = Path.home() / "workspace"
-        workspace.mkdir(parents=True, exist_ok=True)
-        return workspace
+        candidates = [Path.home() / "workspace"]
+        if hermes_home is not None:
+            candidates.append(hermes_home / "workspace")
+        for workspace in candidates:
+            if _ensure_writable_directory(workspace):
+                return workspace
+        checked = ", ".join(str(path) for path in candidates)
+        raise RuntimeError(f"No writable Foundry workspace directory found. Checked: {checked}")
     if hermes_root.parent.name == "third_party":
         return hermes_root.parent.parent
     return Path.cwd()
+
+
+def _gateway_child_env(hermes_root: Path, cwd: Path, hermes_home: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["HERMES_HOME"] = str(hermes_home)
+    env["HERMES_PYTHON_SRC_ROOT"] = str(hermes_root)
+    env["TERMINAL_CWD"] = str(cwd)
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    env.pop("HERMES_TUI_BACKEND", None)
+    existing_pythonpath = env.get("PYTHONPATH", "").strip()
+    env["PYTHONPATH"] = (
+        f"{hermes_root}{os.pathsep}{existing_pythonpath}"
+        if existing_pythonpath
+        else str(hermes_root)
+    )
+    return env
+
+
+def _append_maintenance_history(path: Path, entry: dict[str, Any], max_bytes: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fp:
+        fp.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return
+    if size <= max_bytes:
+        return
+
+    raw = path.read_bytes()
+    kept = raw[-max_bytes:]
+    newline = kept.find(b"\n")
+    if newline >= 0:
+        kept = kept[newline + 1 :]
+    path.write_bytes(kept)
+
+
+def _truncate_text(value: str, limit: int = 4000) -> str:
+    if len(value) <= limit:
+        return value
+    return value[-limit:]
+
+
+def _maintenance_event_payload(result: dict[str, Any]) -> dict[str, Any]:
+    jobs = result.get("jobs")
+    job_summaries: list[dict[str, Any]] = []
+    if isinstance(jobs, list):
+        for item in jobs:
+            if not isinstance(item, dict):
+                continue
+            summary = {
+                "name": item.get("name"),
+                "status": item.get("status"),
+                "duration_seconds": item.get("duration_seconds"),
+            }
+            if "error" in item:
+                summary["error"] = item.get("error")
+            if "reason" in item:
+                summary["reason"] = item.get("reason")
+            job_summaries.append(summary)
+    return {
+        "run_id": result.get("run_id"),
+        "status": result.get("status"),
+        "started_at": result.get("started_at"),
+        "ended_at": result.get("ended_at"),
+        "duration_seconds": result.get("duration_seconds"),
+        "history_path": result.get("history_path"),
+        "jobs": job_summaries,
+    }
+
+
+def _payload_session_id(payload: dict[str, Any]) -> str:
+    direct = str(payload.get("session_id") or "").strip()
+    if direct:
+        return direct
+    session = payload.get("session")
+    if isinstance(session, dict):
+        return str(session.get("id") or "").strip()
+    return ""
+
+
+def _normalize_invoke_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict) or "kind" in payload or "input" not in payload:
+        return payload
+
+    routine_input = payload["input"]
+    if isinstance(routine_input, dict):
+        return routine_input
+    if not isinstance(routine_input, str):
+        return payload
+
+    try:
+        decoded = json.loads(routine_input)
+    except json.JSONDecodeError:
+        return payload
+    return decoded if isinstance(decoded, dict) else payload
 
 
 def _frame_event_type(frame: dict[str, Any]) -> str:
@@ -336,19 +440,29 @@ class HermesChildBroker:
         rpc_request: dict[str, Any],
         *,
         timeout: float = _RPC_RESPONSE_TIMEOUT_S,
+        total_timeout: bool = False,
     ) -> dict[str, Any]:
-        await self._ensure_started()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout if total_timeout else None
+        if deadline is None:
+            await self._ensure_started()
+        else:
+            await self._ensure_started(ready_timeout=min(_GATEWAY_READY_TIMEOUT_S, timeout))
         rid = rpc_request.get("id")
         if rid is None:
             await self._write_request(rpc_request)
             return {"jsonrpc": "2.0", "result": {"status": "sent"}, "id": None}
 
-        loop = asyncio.get_running_loop()
         future: asyncio.Future[dict[str, Any]] = loop.create_future()
         self._pending[rid] = future
         try:
+            response_timeout = timeout
+            if deadline is not None:
+                response_timeout = deadline - loop.time()
+                if response_timeout <= 0:
+                    raise asyncio.TimeoutError
             await self._write_request(rpc_request)
-            return await asyncio.wait_for(future, timeout=timeout)
+            return await asyncio.wait_for(future, timeout=response_timeout)
         finally:
             self._pending.pop(rid, None)
 
@@ -428,7 +542,7 @@ class HermesChildBroker:
         finally:
             buf.close_subscription(queue)
 
-    async def _ensure_started(self) -> None:
+    async def _ensure_started(self, *, ready_timeout: float = _GATEWAY_READY_TIMEOUT_S) -> None:
         if self._proc is not None and self._proc.returncode is None:
             return
 
@@ -438,20 +552,9 @@ class HermesChildBroker:
 
             hermes_root = _resolve_hermes_root()
             python = _choose_gateway_python(hermes_root)
-            cwd = _default_gateway_cwd(hermes_root)
             hermes_home = _prepare_child_hermes_home()
-            env = os.environ.copy()
-            env["HERMES_HOME"] = str(hermes_home)
-            env["HERMES_PYTHON_SRC_ROOT"] = str(hermes_root)
-            env["TERMINAL_CWD"] = str(cwd)
-            env.setdefault("PYTHONUNBUFFERED", "1")
-            env.pop("HERMES_TUI_BACKEND", None)
-            existing_pythonpath = env.get("PYTHONPATH", "").strip()
-            env["PYTHONPATH"] = (
-                f"{hermes_root}{os.pathsep}{existing_pythonpath}"
-                if existing_pythonpath
-                else str(hermes_root)
-            )
+            cwd = _default_gateway_cwd(hermes_root, hermes_home)
+            env = _gateway_child_env(hermes_root, cwd, hermes_home)
 
             self._pending.clear()
             for buf in self._buffers.values():
@@ -474,7 +577,7 @@ class HermesChildBroker:
             self._reader_task = asyncio.create_task(self._read_stdout())
             self._stderr_task = asyncio.create_task(self._read_stderr())
             try:
-                await asyncio.wait_for(self._ready, timeout=_GATEWAY_READY_TIMEOUT_S)
+                await asyncio.wait_for(self._ready, timeout=ready_timeout)
             except Exception:
                 await self._stop_child()
                 raise
@@ -551,6 +654,26 @@ class HermesChildBroker:
             buf = _EventBuffer(_event_buffer_capacity())
             self._buffers[session_id] = buf
         buf.append(frame)
+
+    def emit_event(
+        self, session_id: str, event_type: str, payload: dict[str, Any]
+    ) -> int | None:
+        if not session_id:
+            return None
+        buf = self._buffers.get(session_id)
+        if buf is None:
+            buf = _EventBuffer(_event_buffer_capacity())
+            self._buffers[session_id] = buf
+        frame = {
+            "jsonrpc": "2.0",
+            "method": "event",
+            "params": {
+                "type": event_type,
+                "session_id": session_id,
+                "payload": payload,
+            },
+        }
+        return buf.append(frame)
 
     async def _fail_all(self, exc: Exception) -> None:
         if self._ready is not None and not self._ready.done():
@@ -654,6 +777,143 @@ async def _handle_rpc(payload: dict[str, Any]):
     return JSONResponse(response)
 
 
+async def _handle_maintenance(payload: dict[str, Any]):
+    run_id = str(payload.get("run_id") or uuid.uuid4())
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    if not _maintenance_process_lock.acquire(blocking=False):
+        return JSONResponse(
+            {
+                "kind": "hermes.maintenance.result",
+                "run_id": run_id,
+                "status": "skipped",
+                "reason": "already_running",
+                "started_at": started_at,
+                "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+        )
+
+    try:
+        hermes_home = _prepare_child_hermes_home()
+        maintenance_dir = hermes_home / "foundry-maintenance"
+        history_path = maintenance_dir / "history.jsonl"
+        timeout = _positive_float(
+            payload.get("timeout_seconds")
+            or os.environ.get("HERMES_FOUNDRY_MAINTENANCE_TIMEOUT_SECONDS"),
+            _DEFAULT_MAINTENANCE_TIMEOUT_S,
+            minimum=5.0,
+        )
+        stale_lock_seconds = _positive_float(
+            payload.get("stale_lock_seconds"),
+            timeout * 2,
+            minimum=timeout,
+        )
+        history_max_bytes = _positive_int(
+            payload.get("history_max_bytes")
+            or os.environ.get("HERMES_FOUNDRY_MAINTENANCE_HISTORY_MAX_BYTES"),
+            _DEFAULT_MAINTENANCE_HISTORY_MAX_BYTES,
+            minimum=1024,
+        )
+        request_payload = dict(payload)
+        request_payload["run_id"] = run_id
+        request_payload["started_at"] = started_at
+        request_payload["timeout_seconds"] = timeout
+        request_payload["stale_lock_seconds"] = stale_lock_seconds
+
+        result = await _run_gateway_maintenance(request_payload, timeout)
+
+        result.setdefault("kind", "hermes.maintenance.result")
+        result.setdefault("run_id", run_id)
+        result.setdefault("started_at", started_at)
+        result.setdefault("ended_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+        if "history_path" not in result:
+            result["history_path"] = str(history_path)
+
+        try:
+            _append_maintenance_history(history_path, result, history_max_bytes)
+        except OSError as exc:
+            result["history_error"] = str(exc)
+
+        session_id = _payload_session_id(payload)
+        if session_id:
+            seq = _broker.emit_event(
+                session_id,
+                "maintenance.summary",
+                _maintenance_event_payload(result),
+            )
+            if seq is not None:
+                result["event_seq"] = seq
+
+        return JSONResponse(result)
+    except Exception as exc:
+        return JSONResponse(
+            {
+                "kind": "hermes.maintenance.result",
+                "run_id": run_id,
+                "status": "error",
+                "started_at": started_at,
+                "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "error": str(exc),
+            },
+            status_code=500,
+        )
+    finally:
+        _maintenance_process_lock.release()
+
+
+async def _run_gateway_maintenance(payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+    rpc_request = {
+        "jsonrpc": "2.0",
+        "id": f"maintenance:{payload.get('run_id')}",
+        "method": "maintenance.run",
+        "params": payload,
+    }
+    try:
+        response = await _broker.request(rpc_request, timeout=timeout, total_timeout=True)
+    except asyncio.TimeoutError:
+        return {
+            "kind": "hermes.maintenance.result",
+            "run_id": payload.get("run_id"),
+            "status": "error",
+            "reason": "timeout",
+            "started_at": payload.get("started_at"),
+            "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "error": f"maintenance timed out after {timeout:.0f}s",
+        }
+
+    if not isinstance(response, dict):
+        return {
+            "kind": "hermes.maintenance.result",
+            "run_id": payload.get("run_id"),
+            "status": "error",
+            "started_at": payload.get("started_at"),
+            "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "error": "maintenance gateway returned a non-object response",
+        }
+
+    error = response.get("error")
+    if isinstance(error, dict):
+        message = str(error.get("message") or "maintenance gateway returned an error")
+        result = {
+            "kind": "hermes.maintenance.result",
+            "run_id": payload.get("run_id"),
+            "status": "error",
+            "started_at": payload.get("started_at"),
+            "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "error": message,
+        }
+        if "code" in error:
+            result["code"] = error["code"]
+        return result
+
+    result = response.get("result")
+    if not isinstance(result, dict):
+        result = {"status": "error", "error": "maintenance gateway returned non-object result"}
+    result.setdefault("kind", "hermes.maintenance.result")
+    result.setdefault("run_id", payload.get("run_id"))
+    return result
+
+
 @app.invoke_handler
 async def handle_invoke(request: Request):
     body = await request.body()
@@ -668,13 +928,22 @@ async def handle_invoke(request: Request):
     except json.JSONDecodeError:
         payload = body.decode("utf-8", errors="replace")
 
-    if isinstance(payload, dict) and payload.get("kind") == "hermes.rpc":
-        return await _handle_rpc(payload)
+    payload = _normalize_invoke_payload(payload)
+
+    if isinstance(payload, dict):
+        if payload.get("kind") == "hermes.rpc":
+            return await _handle_rpc(payload)
+        if payload.get("kind") == "hermes.maintenance":
+            return await _handle_maintenance(payload)
 
     return JSONResponse(
         {
             "error": "unsupported_payload",
-            "message": 'This agent only accepts Hermes RPC payloads: {"kind":"hermes.rpc","request":{...}}.',
+            "message": (
+                'This agent accepts Hermes RPC payloads: {"kind":"hermes.rpc","request":{...}} '
+                'and maintenance payloads: {"kind":"hermes.maintenance",...}. '
+                'Routine wrappers may provide either as {"input":"<json>"} or {"input":{...}}.'
+            ),
         },
         status_code=400,
     )

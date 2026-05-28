@@ -99,6 +99,7 @@ hooks:
                     $tenantId = az account show --query tenantId -o tsv 2>$null
                 }
                 if ($tenantId) { azd env set AZURE_TENANT_ID $tenantId | Out-Null }
+                pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/render-hermes-config.ps1
         posix:
             name: predeploy
             kind: sh
@@ -111,3 +112,29 @@ hooks:
                     TENANT_ID="$(az account show --query tenantId -o tsv 2>/dev/null || true)"
                 fi
                 [ -n "$TENANT_ID" ] && azd env set AZURE_TENANT_ID "$TENANT_ID" >/dev/null
+                sh ./scripts/render-hermes-config.sh
+    prepackage:
+        windows:
+            shell: pwsh
+            run: |
+                pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/render-hermes-config.ps1
+        posix:
+            name: prepackage
+            kind: sh
+            shell: sh
+            run: |
+                sh ./scripts/render-hermes-config.sh
+workflows:
+    up:
+        steps:
+            - azd:
+                args:
+                    - provision
+            - azd:
+                args:
+                    - package
+                    - --all
+            - azd:
+                args:
+                    - deploy
+                    - --all

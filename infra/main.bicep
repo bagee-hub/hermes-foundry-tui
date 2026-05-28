@@ -63,19 +63,19 @@ param aiFoundryProjectName string = 'ai-project-${environmentName}'
 param aiProjectDeploymentsJson string = '[]'
 
 @description('Default Foundry model deployment name to provision when aiProjectDeploymentsJson is empty.')
-param foundryModelDeploymentName string = 'gpt-4.1-mini'
+param foundryModelDeploymentName string = 'o3'
 
 @description('Default Foundry model name to provision when aiProjectDeploymentsJson is empty.')
-param foundryModelName string = 'gpt-4.1-mini'
+param foundryModelName string = 'o3'
 
 @description('Default Foundry model version to provision when aiProjectDeploymentsJson is empty.')
-param foundryModelVersion string = '2025-04-14'
+param foundryModelVersion string = '2025-04-16'
 
 @description('Default Foundry model deployment SKU name.')
-param foundryModelSkuName string = 'GlobalStandard'
+param foundryModelSkuName string = 'GlobalProvisionedManaged'
 
 @description('Default Foundry model deployment SKU capacity.')
-param foundryModelSkuCapacity int = 1
+param foundryModelSkuCapacity int = 15
 
 @description('Hermes API mode for the provisioned Foundry model.')
 @allowed([
@@ -83,15 +83,14 @@ param foundryModelSkuCapacity int = 1
   'codex_responses'
   'anthropic_messages'
 ])
-param foundryModelApiMode string = 'chat_completions'
+param foundryModelApiMode string = 'codex_responses'
 
 @description('Hermes auth mode for the provisioned Foundry model.')
 @allowed([
-  'auto'
-  'default_azure_credential'
+  'entra_id'
   'api_key'
 ])
-param foundryModelAuthMode string = 'default_azure_credential'
+param foundryModelAuthMode string = 'entra_id'
 
 @description('List of connections')
 param aiProjectConnectionsJson string = '[]'
@@ -138,9 +137,6 @@ var selectedFoundryModelDeployment = empty(aiProjectDeployments) ? {
 @description('Enable hosted agent deployment')
 param enableHostedAgents bool
 
-@description('Enable the capability host for supporting BYO storage of agent conversations. When false and hosted agents are enabled, the capability host is not created.')
-param enableCapabilityHost bool
-
 @description('Enable monitoring for the AI project')
 param enableMonitoring bool
 
@@ -166,7 +162,7 @@ param existingApplicationInsightsResourceId string = ''
 param existingAppInsightsConnectionName string = ''
 
 // Tags that should be applied to all resources.
-// 
+//
 // Note that 'azd-service-name' tags should be applied separately to service host resources.
 // Example usage:
 //   tags: union(tags, { 'azd-service-name': <service name in azure.yaml> })
@@ -210,7 +206,6 @@ module aiProject 'core/ai/ai-project.bicep' = if (!useExistingAiProject) {
     additionalDependentResources: dependentResources
     enableMonitoring: enableMonitoring
     enableHostedAgents: enableHostedAgents
-    enableCapabilityHost: enableCapabilityHost
     existingContainerRegistryResourceId: existingContainerRegistryResourceId
     existingContainerRegistryEndpoint: existingContainerRegistryEndpoint
     existingAcrConnectionName: existingAcrConnectionName
@@ -258,11 +253,14 @@ output AZURE_RESOURCE_GROUP string = resourceGroupName
 output AZURE_AI_ACCOUNT_ID string = useExistingAiProject ? existingAiProject.outputs.accountId : aiProject.outputs.accountId
 output AZURE_AI_PROJECT_ID string = useExistingAiProject ? existingAiProject.outputs.projectId : aiProject.outputs.projectId
 output AZURE_AI_FOUNDRY_PROJECT_ID string = useExistingAiProject ? existingAiProject.outputs.projectId : aiProject.outputs.projectId
+output FOUNDRY_PROJECT_ID string = useExistingAiProject ? existingAiProject.outputs.projectId : aiProject.outputs.projectId
 output AZURE_AI_ACCOUNT_NAME string = useExistingAiProject ? existingAiProject.outputs.aiServicesAccountName : aiProject.outputs.aiServicesAccountName
 output AZURE_AI_PROJECT_NAME string = useExistingAiProject ? existingAiProject.outputs.projectName : aiProject.outputs.projectName
 
 // Endpoints
 output AZURE_AI_PROJECT_ENDPOINT string = useExistingAiProject ? existingAiProject.outputs.AZURE_AI_PROJECT_ENDPOINT : aiProject.outputs.AZURE_AI_PROJECT_ENDPOINT
+output FOUNDRY_PROJECT_ENDPOINT string = useExistingAiProject ? existingAiProject.outputs.AZURE_AI_PROJECT_ENDPOINT : aiProject.outputs.AZURE_AI_PROJECT_ENDPOINT
+output AZURE_AI_SERVICES_ENDPOINT string = useExistingAiProject ? existingAiProject.outputs.aiServicesEndpoint : aiProject.outputs.aiServicesEndpoint
 output AZURE_OPENAI_ENDPOINT string = useExistingAiProject ? existingAiProject.outputs.AZURE_OPENAI_ENDPOINT : aiProject.outputs.AZURE_OPENAI_ENDPOINT
 output AZURE_FOUNDRY_BASE_URL string = useExistingAiProject ? existingAiProject.outputs.AZURE_OPENAI_ENDPOINT : aiProject.outputs.AZURE_OPENAI_ENDPOINT
 output AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME string = selectedFoundryModelDeployment.name

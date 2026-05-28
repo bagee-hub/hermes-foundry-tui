@@ -11,4 +11,7 @@ template:
   protocols:
     - protocol: invocations
       version: 1.0.0
+agentEndpoint:
+  protocols:
+    - invocations
 resources: []

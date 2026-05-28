@@ -9,7 +9,7 @@
         "value": "${AZURE_ENV_NAME}"
       },
       "location": {
-        "value": "${AZURE_LOCATION}"
+        "value": "westus2"
       },
       "aiFoundryResourceName": {
         "value": "${AZURE_AI_ACCOUNT_NAME}"
@@ -18,7 +18,7 @@
         "value": "${AZURE_AI_PROJECT_NAME}"
       },
       "aiDeploymentsLocation": {
-        "value": "${AZURE_LOCATION}"
+        "value": "westus2"
       },
       "principalId": {
         "value": "${AZURE_PRINCIPAL_ID}"
@@ -27,28 +27,28 @@
         "value": "${AZURE_PRINCIPAL_TYPE}"
       },
       "aiProjectDeploymentsJson": {
-        "value": "${AI_PROJECT_DEPLOYMENTS=[]}"
+        "value": "[]"
       },
       "foundryModelDeploymentName": {
-        "value": "${AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME=gpt-5.4-mini}"
+        "value": "o3"
       },
       "foundryModelName": {
-        "value": "${AZURE_FOUNDRY_MODEL_NAME=gpt-5.4-mini}"
+        "value": "o3"
       },
       "foundryModelVersion": {
-        "value": "${AZURE_FOUNDRY_MODEL_VERSION=2026-03-17}"
+        "value": "2025-04-16"
       },
       "foundryModelSkuName": {
-        "value": "${AZURE_FOUNDRY_MODEL_SKU_NAME=DataZoneStandard}"
+        "value": "GlobalProvisionedManaged"
       },
       "foundryModelSkuCapacity": {
-        "value": "${AZURE_FOUNDRY_MODEL_SKU_CAPACITY=10}"
+        "value": 15
       },
       "foundryModelApiMode": {
-        "value": "${AZURE_FOUNDRY_MODEL_API_MODE=chat_completions}"
+        "value": "codex_responses"
       },
       "foundryModelAuthMode": {
-        "value": "${AZURE_FOUNDRY_AUTH_MODE=default_azure_credential}"
+        "value": "entra_id"
       },
       "aiProjectConnectionsJson": {
         "value": "${AI_PROJECT_CONNECTIONS=[]}"
@@ -64,9 +64,6 @@
       },
       "enableHostedAgents": {
         "value": "${ENABLE_HOSTED_AGENTS=false}"
-      },
-      "enableCapabilityHost": {
-        "value": "${ENABLE_CAPABILITY_HOST=true}"
       },
       "useExistingAiProject": {
         "value": "${USE_EXISTING_AI_PROJECT=false}"
