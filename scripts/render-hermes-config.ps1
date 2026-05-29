@@ -47,13 +47,20 @@ function ConvertTo-YamlDoubleQuotedString {
     return $Value.Replace('\', '\\').Replace('"', '\"')
 }
 
+function Normalize-ProjectEndpoint {
+    param([Parameter(Mandatory = $true)][string]$Value)
+
+    return $Value.Trim().TrimEnd("/")
+}
+
 function Format-YamlScalarLine {
     param(
         [Parameter(Mandatory = $true)][string]$Key,
-        [Parameter(Mandatory = $true)][string]$Value
+        [Parameter(Mandatory = $true)][string]$Value,
+        [int]$Indent = 2
     )
 
-    return '  ' + $Key + ': "' + (ConvertTo-YamlDoubleQuotedString $Value) + '"'
+    return (' ' * $Indent) + $Key + ': "' + (ConvertTo-YamlDoubleQuotedString $Value) + '"'
 }
 
 $DeploymentName = Get-RequiredAzdEnvValue "AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME"
@@ -75,6 +82,16 @@ if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
     throw "AZURE_FOUNDRY_BASE_URL resolved to an empty base URL."
 }
 
+$ToolboxMcpUrl = Get-AzdEnvValue "HERMES_FOUNDRY_TOOLBOX_MCP_URL"
+if ([string]::IsNullOrWhiteSpace($ToolboxMcpUrl)) {
+    $ToolboxName = Get-AzdEnvValue "HERMES_FOUNDRY_TOOLBOX_NAME"
+    if ([string]::IsNullOrWhiteSpace($ToolboxName)) {
+        $ToolboxName = "Test"
+    }
+    $ProjectEndpoint = Normalize-ProjectEndpoint (Get-RequiredAzdEnvValue "AZURE_AI_PROJECT_ENDPOINT")
+    $ToolboxMcpUrl = "$ProjectEndpoint/toolboxes/$ToolboxName/mcp?api-version=v1"
+}
+
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Remove-Item -Force -ErrorAction SilentlyContinue $OutFile
 
@@ -84,7 +101,19 @@ $Lines = @(
     (Format-YamlScalarLine "default" $DeploymentName),
     (Format-YamlScalarLine "base_url" $BaseUrl),
     (Format-YamlScalarLine "api_mode" $ApiMode),
-    (Format-YamlScalarLine "auth_mode" $AuthMode)
+    (Format-YamlScalarLine "auth_mode" $AuthMode),
+    "mcp_servers:",
+    "  foundry_toolbox:",
+    (Format-YamlScalarLine "url" $ToolboxMcpUrl 4),
+    (Format-YamlScalarLine "auth" "entra_id" 4),
+    "    entra:",
+    (Format-YamlScalarLine "scope" "https://ai.azure.com/.default" 6),
+    "    timeout: 120",
+    "    connect_timeout: 60",
+    "    supports_parallel_tool_calls: false",
+    "    tools:",
+    "      resources: false",
+    "      prompts: false"
 )
 $Lines | Set-Content -Path $OutFile -Encoding utf8
 

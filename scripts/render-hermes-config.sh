@@ -11,7 +11,9 @@ trim() {
 }
 
 get_azd_value() {
-    azd env get-value "$1" 2>/dev/null | trim || true
+    if value="$(azd env get-value "$1" 2>/dev/null)"; then
+        printf '%s' "$value" | trim
+    fi
 }
 
 require_azd_value() {
@@ -49,6 +51,14 @@ yaml_double_quote() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+normalize_project_endpoint() {
+    normalized="$(printf '%s' "$1" | trim)"
+    while [ "${normalized%/}" != "$normalized" ]; do
+        normalized="${normalized%/}"
+    done
+    printf '%s' "$normalized"
+}
+
 deployment_name="$(require_azd_value AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME)"
 base_url="$(normalize_foundry_base_url "$(require_azd_value AZURE_FOUNDRY_BASE_URL)")"
 api_mode="$(require_azd_value AZURE_FOUNDRY_MODEL_API_MODE)"
@@ -70,6 +80,16 @@ if [ -z "$base_url" ]; then
     exit 1
 fi
 
+toolbox_mcp_url="$(get_azd_value HERMES_FOUNDRY_TOOLBOX_MCP_URL)"
+if [ -z "$toolbox_mcp_url" ]; then
+    toolbox_name="$(get_azd_value HERMES_FOUNDRY_TOOLBOX_NAME)"
+    if [ -z "$toolbox_name" ]; then
+        toolbox_name="Test"
+    fi
+    project_endpoint="$(normalize_project_endpoint "$(require_azd_value AZURE_AI_PROJECT_ENDPOINT)")"
+    toolbox_mcp_url="${project_endpoint}/toolboxes/${toolbox_name}/mcp?api-version=v1"
+fi
+
 mkdir -p "$out_dir"
 rm -f "$out_file"
 {
@@ -79,6 +99,18 @@ rm -f "$out_file"
     printf '  base_url: "%s"\n' "$(yaml_double_quote "$base_url")"
     printf '  api_mode: "%s"\n' "$(yaml_double_quote "$api_mode")"
     printf '  auth_mode: "%s"\n' "$(yaml_double_quote "$auth_mode")"
+    printf 'mcp_servers:\n'
+    printf '  foundry_toolbox:\n'
+    printf '    url: "%s"\n' "$(yaml_double_quote "$toolbox_mcp_url")"
+    printf '    auth: "%s"\n' "$(yaml_double_quote "entra_id")"
+    printf '    entra:\n'
+    printf '      scope: "%s"\n' "$(yaml_double_quote "https://ai.azure.com/.default")"
+    printf '    timeout: 120\n'
+    printf '    connect_timeout: 60\n'
+    printf '    supports_parallel_tool_calls: false\n'
+    printf '    tools:\n'
+    printf '      resources: false\n'
+    printf '      prompts: false\n'
 } >"$out_file"
 
 echo "Rendered Hermes config: agent/hermes-defaults/config.yaml"

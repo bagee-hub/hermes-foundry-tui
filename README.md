@@ -132,7 +132,26 @@ model:
   base_url: <AZURE_FOUNDRY_BASE_URL>/openai/v1
   api_mode: <AZURE_FOUNDRY_MODEL_API_MODE>
   auth_mode: entra_id
+mcp_servers:
+  foundry_toolbox:
+    url: <AZURE_AI_PROJECT_ENDPOINT>/toolboxes/Test/mcp?api-version=v1
+    auth: entra_id
+    entra:
+      scope: https://ai.azure.com/.default
 ```
+
+The `foundry_toolbox` entry connects Hermes directly to the Foundry Toolbox MCP
+endpoint over Streamable HTTP using native Microsoft Entra ID bearer auth
+(`auth: entra_id`). Hermes mints a fresh token per request from the hosted
+agent's managed identity via `DefaultAzureCredential`, scoped to
+`https://ai.azure.com/.default`. Set `HERMES_FOUNDRY_TOOLBOX_NAME` or
+`HERMES_FOUNDRY_TOOLBOX_MCP_URL` in the azd environment before packaging if the
+toolbox is not named `Test`.
+
+> Note: the `auth: entra_id` MCP transport support is currently carried as a
+> cherry-pick on the vendored Hermes submodule
+> (`feat/azure-mcp-bearer-auth`). Once that change lands upstream, the
+> cherry-pick can be dropped.
 
 The hosted agent does not rewrite this file on boot. In the current Foundry hosted-agent public preview, each session starts from the deployment image and then preserves the sandbox filesystem, so Hermes config changes made inside a session persist instead of being clobbered on restart. This also avoids inheriting your personal `~/.hermes` model settings during the Foundry path.
 
@@ -162,7 +181,7 @@ azd auth login
 azd up
 ```
 
-`azd up` provisions the Microsoft Foundry project resources, including the default model deployment, renders the hosted Hermes config, builds the hosted-agent container, and publishes the agent through the `azure.ai.agents` extension. Re-run `azd up` or `azd deploy` after changing model-related azd environment values so the image contains the updated config.
+`azd up` provisions the Microsoft Foundry project resources, including the default model deployment, renders the hosted Hermes config, builds the hosted-agent container, and publishes the agent through the `azure.ai.agents` extension. Re-run `azd up` or `azd deploy` after changing model-related azd environment values or Foundry Toolbox settings so the image contains the updated config.
 
 The hosted agent runs under its own managed identity. A post-deploy hook grants that identity the `Cognitive Services OpenAI User` role on the AI Services account so Hermes can call the deployed model with `DefaultAzureCredential`.
 
