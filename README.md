@@ -192,6 +192,12 @@ az login
 ./scripts/run-foundry-tui-remote.sh
 ```
 
+Pass an optional session name as the first argument to target a specific named Foundry session instead of the per-user derived `tui-<sha256(oid)>` key. This sets `HERMES_FOUNDRY_WORKSPACE_KEY` for you and is handy for spinning up a fresh session/sandbox (e.g. after a previous session is stuck deleting):
+
+```bash
+./scripts/run-foundry-tui-remote.sh barry
+```
+
 The deployed container is built from the repository root so it includes `third_party/hermes`; `agent/Dockerfile` installs the hosted-agent shim plus the pinned Hermes submodule into the image. Keep the submodule initialized before deploying:
 
 ```bash

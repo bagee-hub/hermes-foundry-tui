@@ -10,6 +10,14 @@ fi
 
 cd "$ROOT_DIR"
 
+# Optional first positional arg is a session name. It overrides the
+# per-user derived "tui-<sha256(oid)>" workspace key so you can target a
+# fresh, named Foundry session (e.g. `run-foundry-tui-remote.sh barry`).
+if [[ $# -gt 0 && "$1" != -* ]]; then
+  export HERMES_FOUNDRY_WORKSPACE_KEY="$1"
+  shift
+fi
+
 azd_env_get() {
   local name="$1"
   local value
