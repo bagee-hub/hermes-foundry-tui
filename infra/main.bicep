@@ -267,6 +267,7 @@ output AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME string = selectedFoundryModelDeployme
 output AZURE_FOUNDRY_MODEL_NAME string = selectedFoundryModelDeployment.model.name
 output AZURE_FOUNDRY_MODEL_API_MODE string = foundryModelApiMode
 output AZURE_FOUNDRY_AUTH_MODE string = foundryModelAuthMode
+output AZURE_FOUNDRY_AUX_MODEL_DEPLOYMENT_NAME string = length(aiProjectDeployments) > 1 ? aiProjectDeployments[1].name : ''
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = useExistingAiProject ? existingAiProject.outputs.APPLICATIONINSIGHTS_CONNECTION_STRING : aiProject.outputs.APPLICATIONINSIGHTS_CONNECTION_STRING
 output APPLICATIONINSIGHTS_RESOURCE_ID string = useExistingAiProject ? existingAiProject.outputs.APPLICATIONINSIGHTS_RESOURCE_ID : aiProject.outputs.APPLICATIONINSIGHTS_RESOURCE_ID
 

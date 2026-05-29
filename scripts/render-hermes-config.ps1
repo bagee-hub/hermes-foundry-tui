@@ -70,6 +70,7 @@ $AuthMode = Get-AzdEnvValue "AZURE_FOUNDRY_AUTH_MODE"
 if ([string]::IsNullOrWhiteSpace($AuthMode)) {
     $AuthMode = "entra_id"
 }
+$AuxDeploymentName = Get-AzdEnvValue "AZURE_FOUNDRY_AUX_MODEL_DEPLOYMENT_NAME"
 switch ($AuthMode) {
     "entra_id" {}
     "api_key" {}
@@ -101,7 +102,20 @@ $Lines = @(
     (Format-YamlScalarLine "default" $DeploymentName),
     (Format-YamlScalarLine "base_url" $BaseUrl),
     (Format-YamlScalarLine "api_mode" $ApiMode),
-    (Format-YamlScalarLine "auth_mode" $AuthMode),
+    (Format-YamlScalarLine "auth_mode" $AuthMode)
+)
+
+if (-not [string]::IsNullOrWhiteSpace($AuxDeploymentName)) {
+    $Lines += "auxiliary:"
+    foreach ($AuxTask in @("vision", "web_extract", "compression", "approval", "mcp", "title_generation", "skills_hub", "triage_specifier", "kanban_decomposer", "profile_describer", "curator")) {
+        $Lines += "  ${AuxTask}:"
+        $Lines += (Format-YamlScalarLine "provider" "azure-foundry" 4)
+        $Lines += (Format-YamlScalarLine "model" $AuxDeploymentName 4)
+        $Lines += (Format-YamlScalarLine "api_mode" "chat_completions" 4)
+    }
+}
+
+$Lines += @(
     "mcp_servers:",
     "  foundry_toolbox:",
     (Format-YamlScalarLine "url" $ToolboxMcpUrl 4),

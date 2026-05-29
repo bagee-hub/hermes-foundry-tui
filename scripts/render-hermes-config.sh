@@ -66,6 +66,7 @@ auth_mode="$(get_azd_value AZURE_FOUNDRY_AUTH_MODE)"
 if [ -z "$auth_mode" ]; then
     auth_mode="entra_id"
 fi
+aux_deployment_name="$(get_azd_value AZURE_FOUNDRY_AUX_MODEL_DEPLOYMENT_NAME)"
 case "$auth_mode" in
     entra_id|api_key)
         ;;
@@ -99,6 +100,15 @@ rm -f "$out_file"
     printf '  base_url: "%s"\n' "$(yaml_double_quote "$base_url")"
     printf '  api_mode: "%s"\n' "$(yaml_double_quote "$api_mode")"
     printf '  auth_mode: "%s"\n' "$(yaml_double_quote "$auth_mode")"
+    if [ -n "$aux_deployment_name" ]; then
+        printf 'auxiliary:\n'
+        for aux_task in vision web_extract compression approval mcp title_generation skills_hub triage_specifier kanban_decomposer profile_describer curator; do
+            printf '  %s:\n' "$aux_task"
+            printf '    provider: "%s"\n' "$(yaml_double_quote azure-foundry)"
+            printf '    model: "%s"\n' "$(yaml_double_quote "$aux_deployment_name")"
+            printf '    api_mode: "%s"\n' "$(yaml_double_quote chat_completions)"
+        done
+    fi
     printf 'mcp_servers:\n'
     printf '  foundry_toolbox:\n'
     printf '    url: "%s"\n' "$(yaml_double_quote "$toolbox_mcp_url")"

@@ -27,25 +27,25 @@
         "value": "${AZURE_PRINCIPAL_TYPE}"
       },
       "aiProjectDeploymentsJson": {
-        "value": "[]"
+        "value": "[{\"name\":\"Kimi-K2.6\",\"model\":{\"name\":\"Kimi-K2.6\",\"format\":\"MoonshotAI\",\"version\":\"2026-04-20\"},\"sku\":{\"name\":\"GlobalStandard\",\"capacity\":100}},{\"name\":\"grok-4-1-fast-non-reasoning\",\"model\":{\"name\":\"grok-4-1-fast-non-reasoning\",\"format\":\"xAI\",\"version\":\"1\"},\"sku\":{\"name\":\"GlobalStandard\",\"capacity\":200}}]"
       },
       "foundryModelDeploymentName": {
-        "value": "o3"
+        "value": "Kimi-K2.6"
       },
       "foundryModelName": {
-        "value": "o3"
+        "value": "Kimi-K2.6"
       },
       "foundryModelVersion": {
-        "value": "2025-04-16"
+        "value": "2026-04-20"
       },
       "foundryModelSkuName": {
-        "value": "GlobalProvisionedManaged"
+        "value": "GlobalStandard"
       },
       "foundryModelSkuCapacity": {
-        "value": 15
+        "value": 100
       },
       "foundryModelApiMode": {
-        "value": "codex_responses"
+        "value": "chat_completions"
       },
       "foundryModelAuthMode": {
         "value": "entra_id"
