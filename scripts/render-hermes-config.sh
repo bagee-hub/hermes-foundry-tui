@@ -110,7 +110,7 @@ rm -f "$out_file"
         done
     fi
     printf 'mcp_servers:\n'
-    printf '  foundry_toolbox:\n'
+    printf '  ftb:\n'
     printf '    url: "%s"\n' "$(yaml_double_quote "$toolbox_mcp_url")"
     printf '    auth: "%s"\n' "$(yaml_double_quote "entra_id")"
     printf '    entra:\n'

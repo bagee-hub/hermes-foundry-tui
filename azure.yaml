@@ -142,6 +142,21 @@ hooks:
                         if ($LASTEXITCODE -ne 0) { Write-Host "predown: warning: failed to delete deployment '$dep' (continuing)" }
                     }
                 }
+                # Clear self-referential infra outputs so the next `azd up` recreates them
+                # instead of reading its own stale values as pre-existing resources.
+                foreach ($v in @(
+                    'AZURE_AI_PROJECT_ACR_CONNECTION_NAME',
+                    'AZURE_CONTAINER_REGISTRY_ENDPOINT',
+                    'AZURE_CONTAINER_REGISTRY_RESOURCE_ID',
+                    'APPLICATIONINSIGHTS_CONNECTION_STRING',
+                    'APPLICATIONINSIGHTS_CONNECTION_NAME',
+                    'APPLICATIONINSIGHTS_RESOURCE_ID',
+                    'AGENT_HERMES_FOUNDRY_AGENT_ENDPOINT',
+                    'AGENT_HERMES_FOUNDRY_AGENT_INVOCATIONS_ENDPOINT',
+                    'AGENT_HERMES_FOUNDRY_AGENT_VERSION')) {
+                    Write-Host "predown: clearing stale env output '$v'"
+                    azd env set "$v" "" | Out-Null
+                }
         posix:
             name: predown
             kind: sh
@@ -168,6 +183,21 @@ hooks:
                         az cognitiveservices account deployment delete -n "$ACCOUNT" -g "$RG" --deployment-name "$DEP" $SUB_ARGS \
                             || echo "predown: warning: failed to delete deployment '$DEP' (continuing)"
                     done
+                done
+                # Clear self-referential infra outputs so the next `azd up` recreates them
+                # instead of reading its own stale values as pre-existing resources.
+                for V in \
+                    AZURE_AI_PROJECT_ACR_CONNECTION_NAME \
+                    AZURE_CONTAINER_REGISTRY_ENDPOINT \
+                    AZURE_CONTAINER_REGISTRY_RESOURCE_ID \
+                    APPLICATIONINSIGHTS_CONNECTION_STRING \
+                    APPLICATIONINSIGHTS_CONNECTION_NAME \
+                    APPLICATIONINSIGHTS_RESOURCE_ID \
+                    AGENT_HERMES_FOUNDRY_AGENT_ENDPOINT \
+                    AGENT_HERMES_FOUNDRY_AGENT_INVOCATIONS_ENDPOINT \
+                    AGENT_HERMES_FOUNDRY_AGENT_VERSION; do
+                    echo "predown: clearing stale env output '$V'"
+                    azd env set "$V" "" >/dev/null 2>&1 || true
                 done
     prepackage:
         windows:

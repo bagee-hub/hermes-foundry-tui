@@ -133,15 +133,15 @@ model:
   api_mode: <AZURE_FOUNDRY_MODEL_API_MODE>
   auth_mode: entra_id
 mcp_servers:
-  foundry_toolbox:
+  ftb:
     url: <AZURE_AI_PROJECT_ENDPOINT>/toolboxes/Test/mcp?api-version=v1
     auth: entra_id
     entra:
       scope: https://ai.azure.com/.default
 ```
 
-The `foundry_toolbox` entry connects Hermes directly to the Foundry Toolbox MCP
-endpoint over Streamable HTTP using native Microsoft Entra ID bearer auth
+The `ftb` (Foundry Toolbox) entry connects Hermes directly to the Foundry
+Toolbox MCP endpoint over Streamable HTTP using native Microsoft Entra ID bearer auth
 (`auth: entra_id`). Hermes mints a fresh token per request from the hosted
 agent's managed identity via `DefaultAzureCredential`, scoped to
 `https://ai.azure.com/.default`. Set `HERMES_FOUNDRY_TOOLBOX_NAME` or

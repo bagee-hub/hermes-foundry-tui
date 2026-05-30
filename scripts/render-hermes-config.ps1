@@ -117,7 +117,7 @@ if (-not [string]::IsNullOrWhiteSpace($AuxDeploymentName)) {
 
 $Lines += @(
     "mcp_servers:",
-    "  foundry_toolbox:",
+    "  ftb:",
     (Format-YamlScalarLine "url" $ToolboxMcpUrl 4),
     (Format-YamlScalarLine "auth" "entra_id" 4),
     "    entra:",
