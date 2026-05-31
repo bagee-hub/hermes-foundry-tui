@@ -54,7 +54,8 @@ RUN test -f /tmp/hermes-defaults/config.yaml \
     && install -o appuser -g appuser -m 0644 /tmp/hermes-defaults/config.yaml /home/appuser/.hermes/config.yaml \
     && rm -rf /tmp/hermes-defaults
 
-USER appuser
+# Foundry mounts the session filesystem at HOME=/home/session as root-owned.
+# Run the hosted server as root so Hermes can place state and workspace files there.
 WORKDIR /app/agent
 
 EXPOSE 8088
