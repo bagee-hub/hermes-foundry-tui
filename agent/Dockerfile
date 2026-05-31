@@ -3,9 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HERMES_GATEWAY_SRC_ROOT=/app/third_party/hermes \
-    HERMES_GATEWAY_PYTHON=/usr/local/bin/python \
-    HERMES_CHILD_HOME=/home/appuser/.hermes \
-    HERMES_GATEWAY_CWD=/home/appuser/workspace
+    HERMES_GATEWAY_PYTHON=/usr/local/bin/python
 
 # Tools the Hermes agent reaches for inside the sandbox. No SSH access
 # exists to this container, so nothing here is for humans — every

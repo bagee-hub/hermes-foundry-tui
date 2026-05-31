@@ -119,7 +119,7 @@ If `DefaultAzureCredential` cannot produce a token (no `az login`, no service pr
 
 ### Persistent disk per session
 
-The new public-preview Foundry hosted-agent runtime gives every distinct `agent_session_id` its own sandbox filesystem that lives for the life of the session. The hosted image pins Hermes home to `/home/appuser/.hermes` and the child cwd to `/home/appuser/workspace`, so both Hermes state and agent-created workspace files land on that per-session filesystem and survive across invocations and process restarts within the session. This avoids relying on the preview runtime's `HOME` value, which may point at a service-managed path that is not writable by the container user. Local dev (without `FOUNDRY_HOSTING_ENVIRONMENT`) still defaults Hermes home to `~/.cache/hermes-foundry-tui/hermes-home` and cwd to the repo root so it doesn't trample a developer's real `~/.hermes`.
+The new public-preview Foundry hosted-agent runtime gives every distinct `agent_session_id` its own sandbox filesystem that lives for the life of the session. In hosted Foundry, Hermes home defaults to `$HOME/.hermes` and the child cwd defaults to `$HOME/workspace`; the current runtime sets `HOME=/home/session`, so Hermes state and agent-created workspace files land on the session-mounted filesystem instead of the small image root filesystem. Local dev (without `FOUNDRY_HOSTING_ENVIRONMENT`) still defaults Hermes home to `~/.cache/hermes-foundry-tui/hermes-home` and cwd to the repo root so it doesn't trample a developer's real `~/.hermes`.
 
 ### Foundry child config
 
@@ -215,7 +215,7 @@ The hosted Foundry sandbox is your **persistent remote workspace** — full file
 
 | Surface | Where it runs | Notes |
 |---|---|---|
-| `shell.exec`, agent terminal tools, file edits, `/cd` | **Foundry sandbox** | tools start in persistent `/home/appuser/workspace` — `ls` shows the sandbox, not your laptop |
+| `shell.exec`, agent terminal tools, file edits, `/cd` | **Foundry sandbox** | tools start in persistent `$HOME/workspace` (currently `/home/session/workspace`) — `ls` shows the sandbox, not your laptop |
 | Path completion (`complete.path`) | Foundry sandbox | matches paths the agent will actually use |
 | Slash commands, `/help`, `/skills`, `/cron`, `/model` | Foundry sandbox | full Hermes catalog |
 | Hermes session state (history, memory, skills) | Foundry sandbox `/home/appuser/.hermes` | persistent across reconnects |
