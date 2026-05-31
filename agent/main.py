@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -33,6 +34,9 @@ _DEFAULT_MAINTENANCE_HISTORY_MAX_BYTES = 1024 * 1024
 _BUFFER_SHUTDOWN = object()
 _BUFFER_OVERFLOW = object()
 _maintenance_process_lock = threading.Lock()
+_maintenance_delivery_lock = threading.Lock()
+_USER_ISOLATION_HEADER = "x-ms-user-isolation-key"
+_CHAT_ISOLATION_HEADER = "x-ms-chat-isolation-key"
 
 
 def _event_buffer_capacity() -> int:
@@ -107,6 +111,9 @@ class _EventBuffer:
         for q in self.subscribers:
             self._signal_queue(q, _BUFFER_SHUTDOWN)
         self.subscribers.clear()
+
+    def has_live_subscribers(self) -> bool:
+        return bool(self.subscribers)
 
     @staticmethod
     def _signal_queue(queue: asyncio.Queue[Any], item: object) -> None:
@@ -375,6 +382,15 @@ def _append_maintenance_history(path: Path, entry: dict[str, Any], max_bytes: in
     path.write_bytes(kept)
 
 
+def _maintenance_history_path(hermes_home: Path | None = None) -> Path:
+    base = hermes_home if hermes_home is not None else _prepare_child_hermes_home()
+    return base / "foundry-maintenance" / "history.jsonl"
+
+
+def _maintenance_delivery_path(history_path: Path) -> Path:
+    return history_path.with_name("delivered-summary.json")
+
+
 def _truncate_text(value: str, limit: int = 4000) -> str:
     if len(value) <= limit:
         return value
@@ -409,6 +425,116 @@ def _maintenance_event_payload(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _maintenance_delivery_key(result: dict[str, Any]) -> str:
+    run_id = str(result.get("run_id") or "").strip()
+    if run_id:
+        return f"run:{run_id}"
+    encoded = json.dumps(
+        _maintenance_event_payload(result),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return f"sha256:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+
+
+def _maintenance_payload_with_delivery_key(
+    result: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    delivery_key = _maintenance_delivery_key(result)
+    payload = _maintenance_event_payload(result)
+    payload["delivery_key"] = delivery_key
+    return delivery_key, payload
+
+
+def _read_latest_maintenance_history(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+
+    latest: dict[str, Any] | None = None
+    with path.open("r", encoding="utf-8") as fp:
+        for line_number, line in enumerate(fp, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError as exc:
+                print(
+                    f"[maintenance] ignoring malformed history line {line_number} in {path}: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                continue
+            if isinstance(item, dict):
+                latest = item
+    return latest
+
+
+def _read_maintenance_delivery_key(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(
+            f"[maintenance] ignoring malformed delivery cursor {path}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return str(data.get("delivery_key") or "")
+
+
+def _write_maintenance_delivery_key(
+    path: Path, delivery_key: str, result: dict[str, Any]
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "delivery_key": delivery_key,
+        "delivered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "run_id": result.get("run_id"),
+    }
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(
+            json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _claim_pending_maintenance_summary() -> dict[str, Any] | None:
+    history_path = _maintenance_history_path()
+    delivery_path = _maintenance_delivery_path(history_path)
+    with _maintenance_delivery_lock:
+        result = _read_latest_maintenance_history(history_path)
+        if result is None:
+            return None
+
+        delivery_key, payload = _maintenance_payload_with_delivery_key(result)
+        if _read_maintenance_delivery_key(delivery_path) == delivery_key:
+            return None
+
+        _write_maintenance_delivery_key(delivery_path, delivery_key, result)
+        return payload
+
+
+def _mark_maintenance_summary_delivered(result: dict[str, Any], history_path: Path) -> str:
+    delivery_path = _maintenance_delivery_path(history_path)
+    with _maintenance_delivery_lock:
+        delivery_key, _ = _maintenance_payload_with_delivery_key(result)
+        _write_maintenance_delivery_key(delivery_path, delivery_key, result)
+        return delivery_key
+
+
 def _payload_session_id(payload: dict[str, Any]) -> str:
     direct = str(payload.get("session_id") or "").strip()
     if direct:
@@ -417,6 +543,19 @@ def _payload_session_id(payload: dict[str, Any]) -> str:
     if isinstance(session, dict):
         return str(session.get("id") or "").strip()
     return ""
+
+
+def _routine_header_source(request: Request, payload: dict[str, Any]) -> dict[str, str]:
+    headers = {str(key): str(value) for key, value in request.headers.items()}
+    isolation = payload.get("isolation")
+    if not isinstance(isolation, dict):
+        return headers
+
+    for name in (_USER_ISOLATION_HEADER, _CHAT_ISOLATION_HEADER):
+        value = str(isolation.get(name) or "").strip()
+        if value:
+            headers[name] = value
+    return headers
 
 
 def _normalize_invoke_payload(payload: Any) -> Any:
@@ -569,6 +708,10 @@ class HermesChildBroker:
                 yield item
         finally:
             buf.close_subscription(queue)
+
+    def has_live_subscribers(self, session_id: str) -> bool:
+        buf = self._buffers.get(session_id)
+        return bool(buf and buf.has_live_subscribers())
 
     async def _ensure_started(self, *, ready_timeout: float = _GATEWAY_READY_TIMEOUT_S) -> None:
         if self._proc is not None and self._proc.returncode is None:
@@ -773,6 +916,19 @@ async def _handle_rpc(payload: dict[str, Any]):
                 }
             )
             try:
+                maintenance_payload = _claim_pending_maintenance_summary()
+                if maintenance_payload is not None:
+                    yield _sse_frame(
+                        {
+                            "jsonrpc": "2.0",
+                            "method": "event",
+                            "params": {
+                                "type": "maintenance.summary",
+                                "session_id": session_id,
+                                "payload": maintenance_payload,
+                            },
+                        }
+                    )
                 async for frame in _broker.subscribe(session_id, since_seq):
                     yield _sse_frame(frame)
                 yield _sse_frame({"type": "done"})
@@ -823,8 +979,7 @@ async def _handle_maintenance(payload: dict[str, Any]):
 
     try:
         hermes_home = _prepare_child_hermes_home()
-        maintenance_dir = hermes_home / "foundry-maintenance"
-        history_path = maintenance_dir / "history.jsonl"
+        history_path = _maintenance_history_path(hermes_home)
         timeout = _positive_float(
             payload.get("timeout_seconds")
             or os.environ.get("HERMES_FOUNDRY_MAINTENANCE_TIMEOUT_SECONDS"),
@@ -863,14 +1018,21 @@ async def _handle_maintenance(payload: dict[str, Any]):
             result["history_error"] = str(exc)
 
         session_id = _payload_session_id(payload)
-        if session_id:
+        if session_id and _broker.has_live_subscribers(session_id):
+            _, event_payload = _maintenance_payload_with_delivery_key(result)
             seq = _broker.emit_event(
                 session_id,
                 "maintenance.summary",
-                _maintenance_event_payload(result),
+                event_payload,
             )
             if seq is not None:
                 result["event_seq"] = seq
+                try:
+                    result["event_delivery_key"] = _mark_maintenance_summary_delivered(
+                        result, history_path
+                    )
+                except OSError as exc:
+                    result["event_delivery_error"] = str(exc)
 
         telemetry.record_maintenance(result)
         return JSONResponse(result)
@@ -963,7 +1125,9 @@ async def handle_invoke(request: Request):
     if isinstance(payload, dict):
         if payload.get("kind") == "hermes.rpc":
             if invocation_session_id:
-                routine_provisioner.schedule_maintenance_routine(invocation_session_id)
+                routine_provisioner.schedule_maintenance_routine(
+                    invocation_session_id, _routine_header_source(request, payload)
+                )
             return await _handle_rpc(payload)
         if payload.get("kind") == "hermes.maintenance":
             if invocation_session_id and not _payload_session_id(payload):
