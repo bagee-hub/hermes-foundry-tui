@@ -123,7 +123,7 @@ The new public-preview Foundry hosted-agent runtime gives every distinct `agent_
 
 ### Foundry child config
 
-Before packaging or deploying the hosted agent, an azd hook renders an isolated Hermes config from azd outputs and the Dockerfile bakes it into `/home/appuser/.hermes/config.yaml`:
+Before packaging or deploying the hosted agent, an azd hook renders an isolated Hermes config from azd outputs and the Dockerfile bakes it into the image. On startup, the hosted agent copies that generated config into `$HERMES_HOME/config.yaml`:
 
 ```yaml
 model:
@@ -218,8 +218,8 @@ The hosted Foundry sandbox is your **persistent remote workspace** — full file
 | `shell.exec`, agent terminal tools, file edits, `/cd` | **Foundry sandbox** | tools start in persistent `$HOME/workspace` (currently `/home/session/workspace`) — `ls` shows the sandbox, not your laptop |
 | Path completion (`complete.path`) | Foundry sandbox | matches paths the agent will actually use |
 | Slash commands, `/help`, `/skills`, `/cron`, `/model` | Foundry sandbox | full Hermes catalog |
-| Hermes session state (history, memory, skills) | Foundry sandbox `/home/appuser/.hermes` | persistent across reconnects |
-| Clipboard image paste (`Ctrl+V`) | Local read at the proxy, **bytes uploaded** to the sandbox `/home/appuser/.hermes/images/` | works the natural way |
+| Hermes session state (history, memory, skills) | Foundry sandbox `$HOME/.hermes` (currently `/home/session/.hermes`) | persistent across reconnects |
+| Clipboard image paste (`Ctrl+V`) | Local read at the proxy, **bytes uploaded** to the sandbox `$HOME/.hermes/images/` | works the natural way |
 | Drag-drop a local file (`input.detect_drop`) | Local detection at the proxy | image files have their bytes uploaded to the sandbox; non-image files generate a `[User attached file: …]` marker that goes into the prompt text |
 | `image.attach <path>` | Proxy resolves the path locally first; if it exists on your laptop, bytes are uploaded. Otherwise the path is treated as sandbox-relative | covers both local-laptop attachments and references to files already in the sandbox |
 | Voice (`voice.{toggle,record,tts}`) | Not yet supported in foundry mode | local mic/speaker plumbing isn't wired up; voice RPCs currently surface upstream errors |

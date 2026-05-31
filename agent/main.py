@@ -205,7 +205,31 @@ def _default_child_hermes_home() -> Path:
 def _prepare_child_hermes_home() -> Path:
     hermes_home = _default_child_hermes_home()
     hermes_home.mkdir(parents=True, exist_ok=True)
+    _install_child_hermes_config(hermes_home)
     return hermes_home
+
+
+def _install_child_hermes_config(hermes_home: Path) -> None:
+    if not _is_foundry_hosted():
+        return
+
+    target = hermes_home / "config.yaml"
+    sources = [
+        Path(__file__).resolve().parent / "hermes-defaults" / "config.yaml",
+        Path("/home/appuser/.hermes/config.yaml"),
+    ]
+    for source in sources:
+        if source.resolve(strict=False) == target.resolve(strict=False):
+            if target.is_file():
+                return
+            continue
+        if source.is_file():
+            shutil.copy2(source, target)
+            return
+
+    if not target.is_file():
+        checked = ", ".join(str(path) for path in sources)
+        raise RuntimeError(f"No hosted Hermes config found. Checked: {checked}")
 
 
 def _resolve_hermes_root() -> Path:
