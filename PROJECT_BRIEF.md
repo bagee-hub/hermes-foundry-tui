@@ -72,6 +72,9 @@ Configuration to capture:
                                  or deliberate impersonation. Normally the
                                  workspace key is derived from the Entra
                                  oid, hashed.)
+  HERMES_FOUNDRY_USER_ISOLATION_KEY / HERMES_FOUNDRY_CHAT_ISOLATION_KEY
+                                (optional explicit overrides for Foundry
+                                 header-isolation keys.)
 
 Workspace identity
 ------------------
@@ -83,7 +86,9 @@ The proxy decodes its own bearer token (no signature verify), reads the
 Invocations call. The hash is stable per user, so the same user always
 reconnects to the same sandbox regardless of cwd or machine; different
 users always land in distinct sandboxes. The raw `oid` is never sent on
-the wire or written to logs.
+the wire or written to logs. Remote calls also send header-isolation keys:
+`tui-user-{sha256(oid)[:16]}` for the user key and
+`tui-chat-{sha256(agent_session_id)[:16]}` for the chat key.
 
 The hosted agent persists Hermes home under `$HOME/.hermes` so all Hermes
 state (config, sessions, memory, workspace files) lives on Foundry's

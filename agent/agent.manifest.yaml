@@ -11,7 +11,13 @@ template:
   protocols:
     - protocol: invocations
       version: 1.0.0
-agentEndpoint:
+agent_endpoint:
+  # Keep this in sync with agent.yaml; scheduled routines and the TUI both
+  # target the endpoint with x-ms-* isolation headers.
   protocols:
-    - invocations
+    - responses
+  authorization_schemes:
+    - type: Entra
+      isolation_key_source:
+        kind: Header
 resources: []

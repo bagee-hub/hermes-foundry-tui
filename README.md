@@ -107,7 +107,7 @@ The Foundry proxy tunnels Hermes JSON-RPC calls as `kind: "hermes.rpc"` invoke p
 
 ### Auth and per-user sessions
 
-`az login` is required everywhere — including against the localhost dev host. The proxy uses `DefaultAzureCredential` to acquire a bearer for the `https://ai.azure.com/.default` scope, decodes its own token to read the Entra `oid` claim, and uses `tui-{sha256(oid)[:16]}` as the per-user `agent_session_id`. The hash is stable per user, so:
+`az login` is required everywhere — including against the localhost dev host. The proxy uses `DefaultAzureCredential` to acquire a bearer for the `https://ai.azure.com/.default` scope, decodes its own token to read the Entra `oid` claim, and uses `tui-{sha256(oid)[:16]}` as the per-user `agent_session_id`. Remote Foundry calls keep Entra authentication and also send Foundry header-isolation keys: `x-ms-user-isolation-key` is derived as `tui-user-{sha256(oid)[:16]}`, and `x-ms-chat-isolation-key` is derived from the active Foundry workspace/session key as `tui-chat-{sha256(agent_session_id)[:16]}`. These hashes are stable per user/session, so:
 
 - The same user always reconnects to the same Foundry session, regardless of cwd or machine.
 - Different users always land in distinct, isolated Foundry sessions and sandboxes.
@@ -115,7 +115,7 @@ The Foundry proxy tunnels Hermes JSON-RPC calls as `kind: "hermes.rpc"` invoke p
 
 If `DefaultAzureCredential` cannot produce a token (no `az login`, no service principal), the proxy fails loudly with a "run az login" error before any RPC is attempted.
 
-`HERMES_FOUNDRY_WORKSPACE_KEY` remains as an explicit override for tests, CI, or deliberate impersonation. `HERMES_FOUNDRY_BEARER_TOKEN` similarly overrides the credential acquisition with a pre-acquired token (useful for tests or automation that already holds a bearer). The `HERMES_FOUNDRY_USER_ISOLATION_KEY` and `HERMES_FOUNDRY_CHAT_ISOLATION_KEY` knobs from earlier drafts are superseded by Entra-`oid` keying and are no longer read.
+`HERMES_FOUNDRY_WORKSPACE_KEY` remains as an explicit override for tests, CI, or deliberate impersonation. `HERMES_FOUNDRY_BEARER_TOKEN` similarly overrides the credential acquisition with a pre-acquired token (useful for tests or automation that already holds a bearer). `HERMES_FOUNDRY_USER_ISOLATION_KEY` and `HERMES_FOUNDRY_CHAT_ISOLATION_KEY` override the derived header-isolation values when automation cannot derive them from Entra; override values may contain only alphanumeric characters, hyphens, and underscores.
 
 ### Persistent disk per session
 
@@ -132,6 +132,9 @@ model:
   base_url: <AZURE_FOUNDRY_BASE_URL>/openai/v1
   api_mode: <AZURE_FOUNDRY_MODEL_API_MODE>
   auth_mode: entra_id
+providers:
+  azure-foundry:
+    stale_timeout_seconds: 300
 mcp_servers:
   ftb:
     url: <AZURE_AI_PROJECT_ENDPOINT>/toolboxes/Test/mcp?api-version=v1

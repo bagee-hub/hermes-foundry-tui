@@ -100,6 +100,9 @@ rm -f "$out_file"
     printf '  base_url: "%s"\n' "$(yaml_double_quote "$base_url")"
     printf '  api_mode: "%s"\n' "$(yaml_double_quote "$api_mode")"
     printf '  auth_mode: "%s"\n' "$(yaml_double_quote "$auth_mode")"
+    printf 'providers:\n'
+    printf '  azure-foundry:\n'
+    printf '    stale_timeout_seconds: 300\n'
     if [ -n "$aux_deployment_name" ]; then
         printf 'auxiliary:\n'
         for aux_task in vision web_extract compression approval mcp title_generation skills_hub triage_specifier kanban_decomposer profile_describer curator; do

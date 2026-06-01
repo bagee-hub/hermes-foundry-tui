@@ -4,9 +4,15 @@ name: hermes-foundry-agent
 protocols:
   - protocol: invocations
     version: 1.0.0
-agentEndpoint:
+agent_endpoint:
+  # Keep this in sync with agent.manifest.yaml; scheduled routines and the TUI
+  # both target the endpoint with x-ms-* isolation headers.
   protocols:
-    - invocations
+    - responses
+  authorization_schemes:
+    - type: Entra
+      isolation_key_source:
+        kind: Header
 resources:
   cpu: "0.5"
   memory: 1Gi

@@ -11,7 +11,9 @@ Instead, the agent provisions the routine itself. On the first terminal
 (``hermes.rpc``) invocation for a given session, ``schedule_maintenance_routine``
 fires a best-effort background task that ensures a routine
 ``hermes-maint-<hash(session_id)>`` exists and matches the desired spec, calling
-back the project's routines REST API with the hosted managed identity.
+back the project's routines REST API with the hosted managed identity and the
+raw session isolation headers from the active hosted-agent request or RPC
+payload.
 
 Design constraints:
 
@@ -38,6 +40,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from typing import Any
 
 logger = logging.getLogger("hermes.maintenance")
@@ -49,6 +52,10 @@ _DEFAULT_ROUTINE_PREFIX = "hermes-maint-"
 _DEFAULT_API_VERSION = "2025-05-15-preview"
 _TOKEN_SCOPE = "https://ai.azure.com/.default"
 _HTTP_TIMEOUT_S = 15.0
+_AGENT_USER_ISOLATION_HEADER = "x-agent-user-isolation-key"
+_AGENT_CHAT_ISOLATION_HEADER = "x-agent-chat-isolation-key"
+_ROUTINE_USER_ISOLATION_HEADER = "x-ms-user-isolation-key"
+_ROUTINE_CHAT_ISOLATION_HEADER = "x-ms-chat-isolation-key"
 # Cooldown before retrying after a failure, so a busy session cannot hammer the
 # routines API. RBAC denials get a long cooldown (an operator must grant the MI
 # permissions); transient failures get a short one.
@@ -121,6 +128,57 @@ def _routine_name(session_id: str) -> str:
     ).strip()
     digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16]
     return f"{prefix}{digest}"
+
+
+def _header_value(headers: Mapping[str, str], name: str) -> str:
+    value = headers.get(name)
+    if value is not None:
+        return str(value).strip()
+
+    normalized = name.lower()
+    for key, candidate in headers.items():
+        if str(key).lower() == normalized:
+            return str(candidate).strip()
+    return ""
+
+
+def _routine_isolation_headers(
+    agent_request_headers: Mapping[str, str] | None,
+) -> dict[str, str]:
+    if agent_request_headers is None:
+        return {}
+
+    user_key = _header_value(agent_request_headers, _ROUTINE_USER_ISOLATION_HEADER)
+    chat_key = _header_value(agent_request_headers, _ROUTINE_CHAT_ISOLATION_HEADER)
+    if not (user_key and chat_key):
+        user_key = _header_value(agent_request_headers, _AGENT_USER_ISOLATION_HEADER)
+        chat_key = _header_value(agent_request_headers, _AGENT_CHAT_ISOLATION_HEADER)
+
+    headers: dict[str, str] = {}
+    if user_key:
+        headers[_ROUTINE_USER_ISOLATION_HEADER] = user_key
+    if chat_key:
+        headers[_ROUTINE_CHAT_ISOLATION_HEADER] = chat_key
+    return headers
+
+
+def _routine_isolation_header_source(headers: Mapping[str, str]) -> str:
+    if _header_value(headers, _ROUTINE_USER_ISOLATION_HEADER) and _header_value(
+        headers, _ROUTINE_CHAT_ISOLATION_HEADER
+    ):
+        return "x-ms"
+    if _header_value(headers, _AGENT_USER_ISOLATION_HEADER) and _header_value(
+        headers, _AGENT_CHAT_ISOLATION_HEADER
+    ):
+        return "x-agent"
+    return "missing"
+
+
+def _has_required_routine_isolation_headers(headers: Mapping[str, str]) -> bool:
+    return bool(
+        _header_value(headers, _ROUTINE_USER_ISOLATION_HEADER)
+        and _header_value(headers, _ROUTINE_CHAT_ISOLATION_HEADER)
+    )
 
 
 def _desired_routine(session_id: str) -> dict[str, Any]:
@@ -202,11 +260,19 @@ def _bearer_token() -> str:
     return _get_credential().get_token(_TOKEN_SCOPE).token
 
 
-def _request(method: str, url: str, token: str, body: dict[str, Any] | None) -> tuple[int, str]:
+def _request(
+    method: str,
+    url: str,
+    token: str,
+    body: dict[str, Any] | None,
+    headers: Mapping[str, str] | None = None,
+) -> tuple[int, str]:
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url=url, method=method, data=data)
     req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Accept", "application/json")
+    for name, value in (headers or {}).items():
+        req.add_header(name, value)
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
@@ -216,7 +282,9 @@ def _request(method: str, url: str, token: str, body: dict[str, Any] | None) -> 
         return exc.code, exc.read().decode("utf-8", errors="replace")
 
 
-def ensure_maintenance_routine(session_id: str) -> None:
+def ensure_maintenance_routine(
+    session_id: str, routine_isolation_headers: Mapping[str, str] | None = None
+) -> None:
     """Ensure a daily maintenance routine exists for ``session_id``.
 
     Best-effort and idempotent: caches success per process, de-duplicates
@@ -238,7 +306,7 @@ def ensure_maintenance_routine(session_id: str) -> None:
         _in_flight.add(session_id)
 
     try:
-        _provision(session_id)
+        _provision(session_id, routine_isolation_headers or {})
     except Exception:  # pragma: no cover - provisioning must never break a run
         _set_cooldown(session_id, _RETRY_COOLDOWN_S)
         logger.warning(
@@ -262,7 +330,7 @@ def _set_cooldown(session_id: str, seconds: float) -> None:
         _cooldown_until[session_id] = time.monotonic() + seconds
 
 
-def _provision(session_id: str) -> None:
+def _provision(session_id: str, routine_isolation_headers: Mapping[str, str]) -> None:
     endpoint = _project_endpoint()
     if not endpoint:
         _set_cooldown(session_id, _RETRY_COOLDOWN_S)
@@ -271,13 +339,26 @@ def _provision(session_id: str) -> None:
         )
         return
 
+    if not _has_required_routine_isolation_headers(routine_isolation_headers):
+        _set_cooldown(session_id, _RETRY_COOLDOWN_S)
+        logger.warning(
+            "cannot provision maintenance routine for session %s: hosted-agent "
+            "request did not include required isolation headers",
+            session_id,
+        )
+        return
+    logger.info(
+        "provisioning maintenance routine for session %s with isolation headers",
+        session_id,
+    )
+
     name = _routine_name(session_id)
     desired = _desired_routine(session_id)
     api_version = _api_version()
     base = f"{endpoint}/routines/{name}?api-version={api_version}"
     token = _bearer_token()
 
-    status, body = _request("GET", base, token, None)
+    status, body = _request("GET", base, token, None, routine_isolation_headers)
     if status == 200:
         try:
             existing = json.loads(body)
@@ -324,7 +405,9 @@ def _provision(session_id: str) -> None:
         )
         return
 
-    put_status, put_body = _request("PUT", base, token, desired)
+    put_status, put_body = _request(
+        "PUT", base, token, desired, routine_isolation_headers
+    )
     if 200 <= put_status < 300:
         _mark_provisioned(session_id)
         logger.info(
@@ -365,7 +448,9 @@ def _on_task_done(task: asyncio.Task[Any]) -> None:
         )
 
 
-def schedule_maintenance_routine(session_id: str) -> None:
+def schedule_maintenance_routine(
+    session_id: str, agent_request_headers: Mapping[str, str] | None = None
+) -> None:
     """Fire-and-forget provisioning of the maintenance routine for a session.
 
     Safe to call from the request handler: returns immediately, adds no latency,
@@ -376,6 +461,8 @@ def schedule_maintenance_routine(session_id: str) -> None:
     session_id = (session_id or "").strip()
     if not session_id or _autoprovision_disabled():
         return
+    source = _routine_isolation_header_source(agent_request_headers or {})
+    routine_isolation_headers = _routine_isolation_headers(agent_request_headers)
     with _state_lock:
         if session_id in _provisioned or session_id in _in_flight:
             return
@@ -388,6 +475,17 @@ def schedule_maintenance_routine(session_id: str) -> None:
     except RuntimeError:
         return
 
-    task = loop.create_task(asyncio.to_thread(ensure_maintenance_routine, session_id))
+    logger.info(
+        "maintenance routine isolation header source for session %s: %s",
+        session_id,
+        source,
+    )
+    task = loop.create_task(
+        asyncio.to_thread(
+            ensure_maintenance_routine,
+            session_id,
+            routine_isolation_headers,
+        )
+    )
     _background_tasks.add(task)
     task.add_done_callback(_on_task_done)

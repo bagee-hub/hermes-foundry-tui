@@ -102,7 +102,10 @@ $Lines = @(
     (Format-YamlScalarLine "default" $DeploymentName),
     (Format-YamlScalarLine "base_url" $BaseUrl),
     (Format-YamlScalarLine "api_mode" $ApiMode),
-    (Format-YamlScalarLine "auth_mode" $AuthMode)
+    (Format-YamlScalarLine "auth_mode" $AuthMode),
+    "providers:",
+    "  azure-foundry:",
+    "    stale_timeout_seconds: 300"
 )
 
 if (-not [string]::IsNullOrWhiteSpace($AuxDeploymentName)) {
