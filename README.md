@@ -16,6 +16,14 @@ This repo intentionally stays separate from Hermes. Hermes source is pinned as a
 └── PROJECT_BRIEF.md
 ```
 
+## Prerequisites
+
+- Azure CLI (`az`) and Azure Developer CLI (`azd`)
+- Azure Developer CLI AI agent extension: `azd extension install azure.ai.agents`
+- Python 3.11 or newer plus `uv` for the Hermes backend environment
+- Node.js and npm for the React/Ink TUI
+- Azure quota for the default `gpt-5.4` and `gpt-5.4-mini` DataZone Standard deployments in `westus2`, or custom model deployment settings before provisioning
+
 ## Initial setup
 
 ```bash
@@ -26,7 +34,7 @@ cd hermes-foundry-tui
 
 If the repo was cloned without submodules, `./scripts/init-hermes.sh` will fetch `third_party/hermes`.
 
-Hermes changes for this PoC live on the `foundry-tui-poc-clean` branch of `https://github.com/glennc/hermes-agent.git`. Work inside `third_party/hermes`, commit and push that branch, then update the submodule pointer in this repo.
+Hermes changes for this PoC live on the `foundry-tui-poc-clean` branch of `https://github.com/glennc/hermes-agent.git`.
 
 ## Local agent testing
 
@@ -50,21 +58,28 @@ azd ai agent invoke --local --protocol invocations -f /tmp/hermes-rpc-setup.json
 
 The local agent starts on port `8088` by default. Invocations now accept only the `hermes.rpc` protocol used by the TUI path; direct text invokes are intentionally rejected so they do not mask real Hermes behavior.
 
-`azd provision` creates the Foundry project and a default OpenAI-family model deployment for the dev loop. The default deployment is `o3` in `codex_responses` mode with `auth_mode=entra_id`, so local runs use your Azure developer identity and hosted runs use the agent identity instead of API keys.
+`azd provision` creates the Foundry project and default OpenAI-family model deployments for the dev loop. The primary deployment is `gpt-5.4` in `chat_completions` mode with `auth_mode=entra_id`, so local runs use your Azure developer identity and hosted runs use the agent identity instead of API keys. The auxiliary deployment is `gpt-5.4-mini`.
 
-To try a different model, edit `infra/main.parameters.json` before provisioning or set fully custom deployment JSON via `AI_PROJECT_DEPLOYMENTS`. The current westus2 defaults are:
+Hosted-agent infrastructure is enabled by default so `azd up` can deploy the remote agent without extra environment toggles. Set `ENABLE_HOSTED_AGENTS=false` before provisioning only if you want a local-invocations project without the hosted-agent capability host and container registry.
+
+To try a different model, set the `AZURE_FOUNDRY_MODEL_*` azd environment values before provisioning, or set fully custom deployment JSON via `AI_PROJECT_DEPLOYMENTS`. When `AI_PROJECT_DEPLOYMENTS` is not set, the defaults are:
 
 ```bash
-azd env set AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME o3
-azd env set AZURE_FOUNDRY_MODEL_NAME o3
-azd env set AZURE_FOUNDRY_MODEL_VERSION 2025-04-16
-azd env set AZURE_FOUNDRY_MODEL_SKU_NAME GlobalProvisionedManaged
-azd env set AZURE_FOUNDRY_MODEL_SKU_CAPACITY 15
-azd env set AZURE_FOUNDRY_MODEL_API_MODE codex_responses
+azd env set AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME gpt-5.4
+azd env set AZURE_FOUNDRY_MODEL_NAME gpt-5.4
+azd env set AZURE_FOUNDRY_MODEL_VERSION 2026-03-05
+azd env set AZURE_FOUNDRY_MODEL_SKU_NAME DataZoneStandard
+azd env set AZURE_FOUNDRY_MODEL_SKU_CAPACITY 100
+azd env set AZURE_FOUNDRY_AUX_MODEL_DEPLOYMENT_NAME gpt-5.4-mini
+azd env set AZURE_FOUNDRY_AUX_MODEL_NAME gpt-5.4-mini
+azd env set AZURE_FOUNDRY_AUX_MODEL_VERSION 2026-03-17
+azd env set AZURE_FOUNDRY_AUX_MODEL_SKU_NAME DataZoneStandard
+azd env set AZURE_FOUNDRY_AUX_MODEL_SKU_CAPACITY 50
+azd env set AZURE_FOUNDRY_MODEL_API_MODE chat_completions
 azd env set AZURE_FOUNDRY_AUTH_MODE entra_id
 ```
 
-For fully custom deployment JSON, set `AI_PROJECT_DEPLOYMENTS`; when it is empty, the Bicep defaults above are used.
+Set `AZURE_FOUNDRY_AUX_MODEL_DEPLOYMENT_NAME` to an empty value to provision only the primary model. For fully custom deployment JSON, set `AI_PROJECT_DEPLOYMENTS`.
 
 ## Local TUI passthrough
 
@@ -119,7 +134,7 @@ If `DefaultAzureCredential` cannot produce a token (no `az login`, no service pr
 
 ### Persistent disk per session
 
-The new public-preview Foundry hosted-agent runtime gives every distinct `agent_session_id` its own sandbox filesystem that lives for the life of the session. In hosted Foundry, Hermes home defaults to `$HOME/.hermes` and the child cwd defaults to `$HOME/workspace`; the current runtime sets `HOME=/home/session`, so Hermes state and agent-created workspace files land on the session-mounted filesystem instead of the small image root filesystem. Local dev (without `FOUNDRY_HOSTING_ENVIRONMENT`) still defaults Hermes home to `~/.cache/hermes-foundry-tui/hermes-home` and cwd to the repo root so it doesn't trample a developer's real `~/.hermes`.
+The new foundry hosted-agent runtime gives every distinct `agent_session_id` its own sandbox filesystem that lives for the life of the session. In hosted Foundry, Hermes home defaults to `$HOME/.hermes` and the child cwd defaults to `$HOME/workspace`; the current runtime sets `HOME=/home/session`, so Hermes state and agent-created workspace files land on the session-mounted filesystem instead of the small image root filesystem. Local dev (without `FOUNDRY_HOSTING_ENVIRONMENT`) still defaults Hermes home to `~/.cache/hermes-foundry-tui/hermes-home` and cwd to the repo root so it doesn't trample a developer's real `~/.hermes`.
 
 ### Foundry child config
 
@@ -135,21 +150,23 @@ model:
 providers:
   azure-foundry:
     stale_timeout_seconds: 300
-mcp_servers:
-  ftb:
-    url: <AZURE_AI_PROJECT_ENDPOINT>/toolboxes/Test/mcp?api-version=v1
-    auth: entra_id
-    entra:
-      scope: https://ai.azure.com/.default
 ```
 
-The `ftb` (Foundry Toolbox) entry connects Hermes directly to the Foundry
-Toolbox MCP endpoint over Streamable HTTP using native Microsoft Entra ID bearer auth
+By default, the rendered config does not include Foundry Toolbox MCP servers.
+This avoids baking a broken MCP endpoint into the first deployment before a
+toolbox exists. To enable one, create the toolbox, set the full MCP URL, and
+redeploy so azd publishes a new hosted-agent version:
+
+```bash
+azd env set HERMES_FOUNDRY_TOOLBOX_MCP_URL '<full Foundry Toolbox MCP URL>'
+azd deploy
+```
+
+When `HERMES_FOUNDRY_TOOLBOX_MCP_URL` is set, the renderer adds an `ftb`
+MCP server using Streamable HTTP with native Microsoft Entra ID bearer auth
 (`auth: entra_id`). Hermes mints a fresh token per request from the hosted
 agent's managed identity via `DefaultAzureCredential`, scoped to
-`https://ai.azure.com/.default`. Set `HERMES_FOUNDRY_TOOLBOX_NAME` or
-`HERMES_FOUNDRY_TOOLBOX_MCP_URL` in the azd environment before packaging if the
-toolbox is not named `Test`.
+`https://ai.azure.com/.default`.
 
 > Note: the `auth: entra_id` MCP transport support is currently carried as a
 > cherry-pick on the vendored Hermes submodule

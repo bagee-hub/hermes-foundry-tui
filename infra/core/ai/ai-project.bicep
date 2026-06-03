@@ -32,9 +32,6 @@ param connectionCredentials object = {}
 @description('Also provision dependent resources and connect to the project')
 param additionalDependentResources dependentResourcesType
 
-@description('Enable monitoring via appinsights and log analytics')
-param enableMonitoring bool = true
-
 @description('Enable hosted agent deployment')
 param enableHostedAgents bool = false
 
@@ -47,15 +44,6 @@ param existingContainerRegistryEndpoint string = ''
 @description('Optional. Name of an existing ACR connection on the Foundry project. If provided, no new ACR or connection will be created.')
 param existingAcrConnectionName string = ''
 
-@description('Optional. Existing Application Insights connection string. If provided, a connection will be created but no new App Insights resource.')
-param existingApplicationInsightsConnectionString string = ''
-
-@description('Optional. Existing Application Insights resource ID. Used for connection metadata when providing an existing App Insights.')
-param existingApplicationInsightsResourceId string = ''
-
-@description('Optional. Name of an existing Application Insights connection on the Foundry project. If provided, no new App Insights or connection will be created.')
-param existingAppInsightsConnectionName string = ''
-
 // Load abbreviations
 var abbrs = loadJsonContent('../../abbreviations.json')
 
@@ -64,10 +52,6 @@ var hasStorageConnection = length(filter(additionalDependentResources, conn => c
 var hasAcrConnection = length(filter(additionalDependentResources, conn => conn.resource == 'registry')) > 0
 var hasExistingAcr = !empty(existingContainerRegistryResourceId)
 var hasExistingAcrConnection = !empty(existingAcrConnectionName)
-var hasExistingAppInsightsConnection = !empty(existingAppInsightsConnectionName)
-var hasExistingAppInsightsConnectionString = !empty(existingApplicationInsightsConnectionString)
-// Only create new App Insights resources if monitoring enabled and no existing connection/connection string
-var shouldCreateAppInsights = enableMonitoring && !hasExistingAppInsightsConnection && !hasExistingAppInsightsConnectionString
 var hasSearchConnection = length(filter(additionalDependentResources, conn => conn.resource == 'azure_ai_search')) > 0
 var hasBingConnection = length(filter(additionalDependentResources, conn => conn.resource == 'bing_grounding')) > 0
 var hasBingCustomConnection = length(filter(additionalDependentResources, conn => conn.resource == 'bing_custom_grounding')) > 0
@@ -78,27 +62,6 @@ var acrConnectionName = hasAcrConnection ? filter(additionalDependentResources, 
 var searchConnectionName = hasSearchConnection ? filter(additionalDependentResources, conn => conn.resource == 'azure_ai_search')[0].connectionName : ''
 var bingConnectionName = hasBingConnection ? filter(additionalDependentResources, conn => conn.resource == 'bing_grounding')[0].connectionName : ''
 var bingCustomConnectionName = hasBingCustomConnection ? filter(additionalDependentResources, conn => conn.resource == 'bing_custom_grounding')[0].connectionName : ''
-
-// Enable monitoring via Log Analytics and Application Insights
-module logAnalytics '../monitor/loganalytics.bicep' = if (shouldCreateAppInsights) {
-  name: 'logAnalytics'
-  params: {
-    location: location
-    tags: tags
-    name: 'logs-${resourceToken}'
-  }
-}
-
-module applicationInsights '../monitor/applicationinsights.bicep' = if (shouldCreateAppInsights) {
-  name: 'applicationInsights'
-  params: {
-    location: location
-    tags: tags
-    name: 'appi-${resourceToken}'
-    logAnalyticsWorkspaceId: logAnalytics.outputs.id
-    projectMIPrincipalId: aiAccount::project.identity.principalId
-  }
-}
 
 // Always create a new AI Account for now (simplified approach)
 // TODO: Add support for existing accounts in a future version
@@ -162,31 +125,6 @@ resource aiAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   }
 }
 
-
-// Create connection towards appinsights:
-// - when we create a new App Insights resource, OR
-// - when the user provided an existing App Insights connection string + resource ID but no existing connection name
-// Both cases are merged into a single resource to avoid duplicate ARM resource definitions (which fail deployment).
-var shouldCreateExistingAppInsightsConnection = enableMonitoring && hasExistingAppInsightsConnectionString && !hasExistingAppInsightsConnection && !empty(existingApplicationInsightsResourceId)
-var shouldCreateAppInsightsConnection = shouldCreateAppInsights || shouldCreateExistingAppInsightsConnection
-
-resource appInsightConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview' = if (shouldCreateAppInsightsConnection) {
-  parent: aiAccount::project
-  name: 'appi-${resourceToken}'
-  properties: {
-    category: 'AppInsights'
-    target: shouldCreateAppInsights ? applicationInsights.outputs.id : existingApplicationInsightsResourceId
-    authType: 'ApiKey'
-    isSharedToAll: true
-    credentials: {
-      key: shouldCreateAppInsights ? applicationInsights.outputs.connectionString : existingApplicationInsightsConnectionString
-    }
-    metadata: {
-      ApiType: 'Azure'
-      ResourceId: shouldCreateAppInsights ? applicationInsights.outputs.id : existingApplicationInsightsResourceId
-    }
-  }
-}
 
 // Create additional connections from ai.yaml configuration
 module aiConnections './connection.bicep' = [for (connection, index) in connections: {
@@ -339,8 +277,6 @@ output aiServicesAccountName string = aiAccount.name
 output aiServicesProjectName string = aiAccount::project.name
 output aiServicesPrincipalId string = aiAccount.identity.principalId
 output projectName string = aiAccount::project.name
-output APPLICATIONINSIGHTS_CONNECTION_STRING string = shouldCreateAppInsights ? applicationInsights.outputs.connectionString : (hasExistingAppInsightsConnectionString ? existingApplicationInsightsConnectionString : '')
-output APPLICATIONINSIGHTS_RESOURCE_ID string = shouldCreateAppInsights ? applicationInsights.outputs.id : (hasExistingAppInsightsConnectionString ? existingApplicationInsightsResourceId : '')
 
 // Connection outputs from the connections array
 output connectionIds array = [for (connection, index) in (connections ?? []): {

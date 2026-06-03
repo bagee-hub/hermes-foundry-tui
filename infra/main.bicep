@@ -77,6 +77,21 @@ param foundryModelSkuName string = 'GlobalProvisionedManaged'
 @description('Default Foundry model deployment SKU capacity.')
 param foundryModelSkuCapacity int = 15
 
+@description('Optional auxiliary Foundry model deployment name to provision when aiProjectDeploymentsJson is empty. Leave empty to disable the auxiliary deployment.')
+param foundryAuxModelDeploymentName string = ''
+
+@description('Auxiliary Foundry model name to provision when aiProjectDeploymentsJson is empty and foundryAuxModelDeploymentName is set.')
+param foundryAuxModelName string = ''
+
+@description('Auxiliary Foundry model version to provision when aiProjectDeploymentsJson is empty and foundryAuxModelDeploymentName is set.')
+param foundryAuxModelVersion string = ''
+
+@description('Auxiliary Foundry model deployment SKU name.')
+param foundryAuxModelSkuName string = 'DataZoneStandard'
+
+@description('Auxiliary Foundry model deployment SKU capacity.')
+param foundryAuxModelSkuCapacity int = 50
+
 @description('Hermes API mode for the provisioned Foundry model.')
 @allowed([
   'chat_completions'
@@ -109,7 +124,7 @@ param aiProjectConnectionsJson string = '[]'
 
 @secure()
 @description('JSON map of connection name to credentials object. Example: {"my-conn":{"key":"secret"}}')
-param aiProjectConnectionCredentialsJson string = '{}'
+param aiProjectConnectionCredentialsJson string = ''
 
 @description('List of resources to create and connect to the AI project')
 param aiProjectDependentResourcesJson string = '[]'
@@ -117,7 +132,7 @@ param aiProjectDependentResourcesJson string = '[]'
 var configuredAiProjectDeployments = json(aiProjectDeploymentsJson)
 // When sourcing models from an external account, do not create any local model deployments.
 var useExternalModels = !empty(externalModelBaseUrl)
-var defaultAiProjectDeployments = [
+var defaultPrimaryAiProjectDeployments = [
   {
     name: foundryModelDeploymentName
     model: {
@@ -131,9 +146,24 @@ var defaultAiProjectDeployments = [
     }
   }
 ]
+var defaultAuxAiProjectDeployments = empty(foundryAuxModelDeploymentName) ? [] : [
+  {
+    name: foundryAuxModelDeploymentName
+    model: {
+      name: foundryAuxModelName
+      format: 'OpenAI'
+      version: foundryAuxModelVersion
+    }
+    sku: {
+      name: foundryAuxModelSkuName
+      capacity: foundryAuxModelSkuCapacity
+    }
+  }
+]
+var defaultAiProjectDeployments = concat(defaultPrimaryAiProjectDeployments, defaultAuxAiProjectDeployments)
 var aiProjectDeployments = useExternalModels ? [] : (empty(configuredAiProjectDeployments) ? defaultAiProjectDeployments : configuredAiProjectDeployments)
 var aiProjectConnections = json(aiProjectConnectionsJson)
-var aiProjectConnectionCreds = json(aiProjectConnectionCredentialsJson)
+var aiProjectConnectionCreds = empty(aiProjectConnectionCredentialsJson) ? {} : json(aiProjectConnectionCredentialsJson)
 var aiProjectDependentResources = json(aiProjectDependentResourcesJson)
 var selectedFoundryModelDeployment = empty(aiProjectDeployments) ? {
   name: ''
@@ -151,9 +181,6 @@ var selectedFoundryModelDeployment = empty(aiProjectDeployments) ? {
 @description('Enable hosted agent deployment')
 param enableHostedAgents bool
 
-@description('Enable monitoring for the AI project')
-param enableMonitoring bool
-
 @description('When true, skip Foundry project/role/connection provisioning and reference the existing project read-only. Use when pointing at an existing Foundry project via --project-id.')
 param useExistingAiProject bool = false
 
@@ -165,15 +192,6 @@ param existingContainerRegistryEndpoint string = ''
 
 @description('Optional. Name of an existing ACR connection on the Foundry project. If provided, no new ACR or connection will be created.')
 param existingAcrConnectionName string = ''
-
-@description('Optional. Existing Application Insights connection string. If provided, a connection will be created but no new App Insights resource.')
-param existingApplicationInsightsConnectionString string = ''
-
-@description('Optional. Existing Application Insights resource ID. Used for connection metadata when providing an existing App Insights.')
-param existingApplicationInsightsResourceId string = ''
-
-@description('Optional. Name of an existing Application Insights connection on the Foundry project. If provided, no new App Insights or connection will be created.')
-param existingAppInsightsConnectionName string = ''
 
 // Tags that should be applied to all resources.
 //
@@ -218,14 +236,10 @@ module aiProject 'core/ai/ai-project.bicep' = if (!useExistingAiProject) {
     connections: aiProjectConnections
     connectionCredentials: aiProjectConnectionCreds
     additionalDependentResources: dependentResources
-    enableMonitoring: enableMonitoring
     enableHostedAgents: enableHostedAgents
     existingContainerRegistryResourceId: existingContainerRegistryResourceId
     existingContainerRegistryEndpoint: existingContainerRegistryEndpoint
     existingAcrConnectionName: existingAcrConnectionName
-    existingApplicationInsightsConnectionString: existingApplicationInsightsConnectionString
-    existingApplicationInsightsResourceId: existingApplicationInsightsResourceId
-    existingAppInsightsConnectionName: existingAppInsightsConnectionName
   }
 }
 
@@ -238,8 +252,6 @@ module existingAiProject 'core/ai/existing-ai-project.bicep' = if (useExistingAi
     aiFoundryProjectName: aiFoundryProjectName
     existingAcrConnectionName: existingAcrConnectionName
     existingContainerRegistryEndpoint: existingContainerRegistryEndpoint
-    existingApplicationInsightsConnectionString: existingApplicationInsightsConnectionString
-    existingApplicationInsightsResourceId: existingApplicationInsightsResourceId
   }
 }
 
@@ -284,8 +296,6 @@ output AZURE_FOUNDRY_AUTH_MODE string = foundryModelAuthMode
 output AZURE_FOUNDRY_AUX_MODEL_DEPLOYMENT_NAME string = useExternalModels ? externalModelAuxDeploymentName : (length(aiProjectDeployments) > 1 ? aiProjectDeployments[1].name : '')
 // Resource ID of the account that hosts the models the agent calls. Empty in local mode (agent uses AZURE_AI_ACCOUNT_ID); set to the external account in split mode so postdeploy can grant model access there.
 output AZURE_FOUNDRY_MODEL_ACCOUNT_ID string = useExternalModels ? externalModelAccountResourceId : ''
-output APPLICATIONINSIGHTS_CONNECTION_STRING string = useExistingAiProject ? existingAiProject.outputs.APPLICATIONINSIGHTS_CONNECTION_STRING : aiProject.outputs.APPLICATIONINSIGHTS_CONNECTION_STRING
-output APPLICATIONINSIGHTS_RESOURCE_ID string = useExistingAiProject ? existingAiProject.outputs.APPLICATIONINSIGHTS_RESOURCE_ID : aiProject.outputs.APPLICATIONINSIGHTS_RESOURCE_ID
 
 // Dependent Resources and Connections
 

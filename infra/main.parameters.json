@@ -12,7 +12,7 @@
         "value": "${AZURE_LOCATION=westus2}"
       },
       "aiFoundryResourceName": {
-        "value": "${AZURE_AI_ACCOUNT_NAME}"
+        "value": "${AZURE_AI_ACCOUNT_NAME=}"
       },
       "aiFoundryProjectName": {
         "value": "${AZURE_AI_PROJECT_NAME=hermes-build}"
@@ -27,28 +27,43 @@
         "value": "${AZURE_PRINCIPAL_TYPE}"
       },
       "aiProjectDeploymentsJson": {
-        "value": "[{\"name\":\"gpt-5.4\",\"model\":{\"name\":\"gpt-5.4\",\"format\":\"OpenAI\",\"version\":\"2026-03-05\"},\"sku\":{\"name\":\"DataZoneStandard\",\"capacity\":100}},{\"name\":\"gpt-5.4-mini\",\"model\":{\"name\":\"gpt-5.4-mini\",\"format\":\"OpenAI\",\"version\":\"2026-03-17\"},\"sku\":{\"name\":\"DataZoneStandard\",\"capacity\":50}}]"
+        "value": "${AI_PROJECT_DEPLOYMENTS=[]}"
       },
       "foundryModelDeploymentName": {
-        "value": "gpt-5.4"
+        "value": "${AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME=gpt-5.4}"
       },
       "foundryModelName": {
-        "value": "gpt-5.4"
+        "value": "${AZURE_FOUNDRY_MODEL_NAME=gpt-5.4}"
       },
       "foundryModelVersion": {
-        "value": "2026-03-05"
+        "value": "${AZURE_FOUNDRY_MODEL_VERSION=2026-03-05}"
       },
       "foundryModelSkuName": {
-        "value": "DataZoneStandard"
+        "value": "${AZURE_FOUNDRY_MODEL_SKU_NAME=DataZoneStandard}"
       },
       "foundryModelSkuCapacity": {
-        "value": 100
+        "value": "${AZURE_FOUNDRY_MODEL_SKU_CAPACITY=100}"
+      },
+      "foundryAuxModelDeploymentName": {
+        "value": "${AZURE_FOUNDRY_AUX_MODEL_DEPLOYMENT_NAME=gpt-5.4-mini}"
+      },
+      "foundryAuxModelName": {
+        "value": "${AZURE_FOUNDRY_AUX_MODEL_NAME=gpt-5.4-mini}"
+      },
+      "foundryAuxModelVersion": {
+        "value": "${AZURE_FOUNDRY_AUX_MODEL_VERSION=2026-03-17}"
+      },
+      "foundryAuxModelSkuName": {
+        "value": "${AZURE_FOUNDRY_AUX_MODEL_SKU_NAME=DataZoneStandard}"
+      },
+      "foundryAuxModelSkuCapacity": {
+        "value": "${AZURE_FOUNDRY_AUX_MODEL_SKU_CAPACITY=50}"
       },
       "foundryModelApiMode": {
-        "value": "chat_completions"
+        "value": "${AZURE_FOUNDRY_MODEL_API_MODE=chat_completions}"
       },
       "foundryModelAuthMode": {
-        "value": "entra_id"
+        "value": "${AZURE_FOUNDRY_AUTH_MODE=entra_id}"
       },
       "aiProjectConnectionsJson": {
         "value": "${AI_PROJECT_CONNECTIONS=[]}"
@@ -66,16 +81,13 @@
         "value": "${AZURE_FOUNDRY_EXTERNAL_AUX_DEPLOYMENT_NAME=}"
       },
       "aiProjectConnectionCredentialsJson": {
-        "value": "${AI_PROJECT_CONNECTION_CREDENTIALS}"
+        "value": "${AI_PROJECT_CONNECTION_CREDENTIALS=}"
       },
       "aiProjectDependentResourcesJson": {
         "value": "${AI_PROJECT_DEPENDENT_RESOURCES=[]}"
       },
-      "enableMonitoring": {
-        "value": "${ENABLE_MONITORING=true}"
-      },
       "enableHostedAgents": {
-        "value": "${ENABLE_HOSTED_AGENTS=false}"
+        "value": "${ENABLE_HOSTED_AGENTS=true}"
       },
       "useExistingAiProject": {
         "value": "${USE_EXISTING_AI_PROJECT=false}"
@@ -88,15 +100,6 @@
       },
       "existingAcrConnectionName": {
         "value": "${AZURE_AI_PROJECT_ACR_CONNECTION_NAME=}"
-      },
-      "existingApplicationInsightsConnectionString": {
-        "value": "${APPLICATIONINSIGHTS_CONNECTION_STRING=}"
-      },
-      "existingApplicationInsightsResourceId": {
-        "value": "${APPLICATIONINSIGHTS_RESOURCE_ID=}"
-      },
-      "existingAppInsightsConnectionName": {
-        "value": "${APPLICATIONINSIGHTS_CONNECTION_NAME=}"
       }
     }
 }

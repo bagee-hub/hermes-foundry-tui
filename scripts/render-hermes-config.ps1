@@ -47,12 +47,6 @@ function ConvertTo-YamlDoubleQuotedString {
     return $Value.Replace('\', '\\').Replace('"', '\"')
 }
 
-function Normalize-ProjectEndpoint {
-    param([Parameter(Mandatory = $true)][string]$Value)
-
-    return $Value.Trim().TrimEnd("/")
-}
-
 function Format-YamlScalarLine {
     param(
         [Parameter(Mandatory = $true)][string]$Key,
@@ -84,14 +78,6 @@ if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
 }
 
 $ToolboxMcpUrl = Get-AzdEnvValue "HERMES_FOUNDRY_TOOLBOX_MCP_URL"
-if ([string]::IsNullOrWhiteSpace($ToolboxMcpUrl)) {
-    $ToolboxName = Get-AzdEnvValue "HERMES_FOUNDRY_TOOLBOX_NAME"
-    if ([string]::IsNullOrWhiteSpace($ToolboxName)) {
-        $ToolboxName = "Test"
-    }
-    $ProjectEndpoint = Normalize-ProjectEndpoint (Get-RequiredAzdEnvValue "AZURE_AI_PROJECT_ENDPOINT")
-    $ToolboxMcpUrl = "$ProjectEndpoint/toolboxes/$ToolboxName/mcp?api-version=v1"
-}
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Remove-Item -Force -ErrorAction SilentlyContinue $OutFile
@@ -118,20 +104,24 @@ if (-not [string]::IsNullOrWhiteSpace($AuxDeploymentName)) {
     }
 }
 
-$Lines += @(
-    "mcp_servers:",
-    "  ftb:",
-    (Format-YamlScalarLine "url" $ToolboxMcpUrl 4),
-    (Format-YamlScalarLine "auth" "entra_id" 4),
-    "    entra:",
-    (Format-YamlScalarLine "scope" "https://ai.azure.com/.default" 6),
-    "    timeout: 120",
-    "    connect_timeout: 60",
-    "    supports_parallel_tool_calls: false",
-    "    tools:",
-    "      resources: false",
-    "      prompts: false"
-)
+if (-not [string]::IsNullOrWhiteSpace($ToolboxMcpUrl)) {
+    $Lines += @(
+        "mcp_servers:",
+        "  ftb:",
+        (Format-YamlScalarLine "url" $ToolboxMcpUrl 4),
+        (Format-YamlScalarLine "auth" "entra_id" 4),
+        "    headers:",
+        (Format-YamlScalarLine "Foundry-Features" "Toolboxes=V1Preview" 6),
+        "    entra:",
+        (Format-YamlScalarLine "scope" "https://ai.azure.com/.default" 6),
+        "    timeout: 120",
+        "    connect_timeout: 60",
+        "    supports_parallel_tool_calls: false",
+        "    tools:",
+        "      resources: false",
+        "      prompts: false"
+    )
+}
 $Lines | Set-Content -Path $OutFile -Encoding utf8
 
 Write-Host "Rendered Hermes config: agent/hermes-defaults/config.yaml"

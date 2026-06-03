@@ -12,12 +12,6 @@ param existingAcrConnectionName string = ''
 @description('Existing container registry endpoint (already set in the environment)')
 param existingContainerRegistryEndpoint string = ''
 
-@description('Existing Application Insights connection string (already set in the environment)')
-param existingApplicationInsightsConnectionString string = ''
-
-@description('Existing Application Insights resource ID (already set in the environment)')
-param existingApplicationInsightsResourceId string = ''
-
 // Reference the existing account and project — read-only, no modifications
 resource aiAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' existing = {
   name: aiServicesAccountName
@@ -37,8 +31,6 @@ output aiServicesAccountName string = aiAccount.name
 output aiServicesProjectName string = aiAccount::project.name
 output aiServicesPrincipalId string = aiAccount.identity.principalId
 output projectName string = aiAccount::project.name
-output APPLICATIONINSIGHTS_CONNECTION_STRING string = existingApplicationInsightsConnectionString
-output APPLICATIONINSIGHTS_RESOURCE_ID string = existingApplicationInsightsResourceId
 
 // Empty connection outputs — these are already set in the azd environment from init
 output connectionIds array = []
