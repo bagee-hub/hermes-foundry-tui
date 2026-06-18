@@ -26,7 +26,31 @@ jobs:
           submodules: recursive
       
       - name: Install azd
-        uses: Azure/setup-azd@v1.0.0
+        run: |
+          # Try multiple installation methods
+          if command -v azd &> /dev/null; then
+            echo "azd already installed"
+            azd version
+            exit 0
+          fi
+          
+          # Method 1: Try apt package (Ubuntu)
+          if command -v apt-get &> /dev/null; then
+            echo "Trying apt installation..."
+            curl -fsSL https://aka.ms/install-azd.sh | bash -s -- --skip-verify || true
+          fi
+          
+          # Method 2: Try direct GitHub release
+          if ! command -v azd &> /dev/null; then
+            echo "Trying GitHub release..."
+            ARCH=$(dpkg --print-architecture)
+            VERSION=$(curl -s https://api.github.com/repos/Azure/azure-dev/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | sed 's/azure-dev-cli_//')
+            wget -q "https://github.com/Azure/azure-dev/releases/download/azure-dev-cli_${VERSION}/azd-linux-${ARCH}.deb" -O /tmp/azd.deb
+            sudo dpkg -i /tmp/azd.deb || sudo apt-get install -f -y
+          fi
+          
+          # Verify installation
+          azd version
       
       - name: Log in to Azure
         uses: azure/login@v2
