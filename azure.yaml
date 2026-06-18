@@ -88,10 +88,10 @@ hooks:
                     exit 1
                 fi
 
-                AGENT_PRINCIPAL_ID="$(azd ai agent show --output json | python3 -c 'import json, sys; print(((json.load(sys.stdin).get("instance_identity") or {}).get("principal_id")) or "")')"
+                AGENT_PRINCIPAL_ID="$(azd ai agent show --output json 2>/dev/null | python3 -c 'import json, sys; data = sys.stdin.read(); print(((json.loads(data).get("instance_identity") or {}).get("principal_id")) or "") if data.strip() else ""' 2>/dev/null || true)"
                 if [ -z "$AGENT_PRINCIPAL_ID" ]; then
-                    echo "Could not resolve hosted agent managed identity principal id." >&2
-                    exit 1
+                    echo "Warning: Could not resolve hosted agent managed identity principal id. Skipping role assignment." >&2
+                    exit 0
                 fi
 
                 ROLE_DEFINITION_ID="/subscriptions/$SUBSCRIPTION_ID/providers/Microsoft.Authorization/roleDefinitions/$OPENAI_USER_ROLE_ID"
