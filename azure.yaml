@@ -12,7 +12,6 @@ services:
         docker:
             path: Dockerfile
             context: ..
-            remoteBuild: true
         config:
             container:
                 resources:
