@@ -121,11 +121,25 @@ jobs:
           # Construct OpenAI endpoint (remove trailing slash)
           OPENAI_ENDPOINT="${AI_ENDPOINT%/}"
           
+          # Get Container Registry endpoint
+          ACR_NAME=$(az acr list -g "$RG_NAME" --query "[0].name" -o tsv)
+          if [ -n "$ACR_NAME" ]; then
+            ACR_ENDPOINT=$(az acr show -n "$ACR_NAME" -g "$RG_NAME" --query "loginServer" -o tsv)
+            echo "✓ Container Registry: $ACR_NAME"
+            echo "✓ Container Registry Endpoint: $ACR_ENDPOINT"
+          else
+            echo "WARNING: No container registry found"
+          fi
+          
           # Set all required variables
           azd env set AZURE_RESOURCE_GROUP "$RG_NAME"
           azd env set AZURE_AI_ACCOUNT_NAME "$AI_ACCOUNT"
           azd env set AZURE_AI_ACCOUNT_ID "$AI_ACCOUNT_ID"
           azd env set AZURE_FOUNDRY_BASE_URL "$OPENAI_ENDPOINT"
+          
+          if [ -n "$ACR_ENDPOINT" ]; then
+            azd env set AZURE_CONTAINER_REGISTRY_ENDPOINT "$ACR_ENDPOINT"
+          fi
           
           if [ -n "$AI_PROJECT_ID" ]; then
             azd env set AZURE_AI_PROJECT_ID "$AI_PROJECT_ID"
