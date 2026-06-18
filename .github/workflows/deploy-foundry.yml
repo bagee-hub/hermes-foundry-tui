@@ -79,26 +79,39 @@ jobs:
           # Set required environment variables
           azd env set AZURE_LOCATION ${{ secrets.AZURE_LOCATION }}
           
-          # Try to refresh from Azure (this will populate variables from existing resources)
-          echo "Refreshing environment from Azure..."
-          if azd env refresh; then
-            echo "✓ Environment refreshed from Azure"
-          else
-            echo "⚠ Could not refresh from Azure, setting variables manually"
-            
-            # Query Azure for resource information
-            RG_NAME=$(az group list --query "[?location=='${{ secrets.AZURE_LOCATION }}'].name | [0]" -o tsv)
-            AI_ACCOUNT=$(az cognitiveservices account list -g "$RG_NAME" --query "[0].name" -o tsv 2>/dev/null || echo "")
-            
-            if [ -n "$AI_ACCOUNT" ]; then
-              AI_ENDPOINT=$(az cognitiveservices account show -n "$AI_ACCOUNT" -g "$RG_NAME" --query "properties.endpoint" -o tsv)
-              OPENAI_ENDPOINT="${AI_ENDPOINT%/}"
-              
-              azd env set AZURE_RESOURCE_GROUP "$RG_NAME"
-              azd env set AZURE_AI_ACCOUNT_NAME "$AI_ACCOUNT"
-              azd env set AZURE_FOUNDRY_BASE_URL "$OPENAI_ENDPOINT"
-            fi
+          # Query Azure for resource information (more reliable than azd env refresh in CI)
+          echo "Querying Azure resources..."
+          RG_NAME=$(az group list --query "[?location=='${{ secrets.AZURE_LOCATION }}'] | [0].name" -o tsv)
+          echo "Resource Group: $RG_NAME"
+          
+          if [ -z "$RG_NAME" ]; then
+            echo "ERROR: No resource group found in location ${{ secrets.AZURE_LOCATION }}"
+            exit 1
           fi
+          
+          # Get AI account information
+          AI_ACCOUNT=$(az cognitiveservices account list -g "$RG_NAME" --query "[?kind=='AIServices' || kind=='OpenAI'] | [0].name" -o tsv)
+          echo "AI Account: $AI_ACCOUNT"
+          
+          if [ -z "$AI_ACCOUNT" ]; then
+            echo "ERROR: No AI account found in resource group $RG_NAME"
+            exit 1
+          fi
+          
+          # Get endpoints
+          AI_ENDPOINT=$(az cognitiveservices account show -n "$AI_ACCOUNT" -g "$RG_NAME" --query "properties.endpoint" -o tsv)
+          echo "AI Endpoint: $AI_ENDPOINT"
+          
+          # Construct OpenAI endpoint (remove trailing slash and add /openai)
+          OPENAI_ENDPOINT="${AI_ENDPOINT%/}"
+          
+          # Set all required variables
+          azd env set AZURE_RESOURCE_GROUP "$RG_NAME"
+          azd env set AZURE_AI_ACCOUNT_NAME "$AI_ACCOUNT"
+          azd env set AZURE_FOUNDRY_BASE_URL "$OPENAI_ENDPOINT"
+          
+          # Try to refresh to get other variables
+          azd env refresh || echo "Note: azd env refresh failed, continuing with manual configuration"
           
           # Ensure critical Foundry variables are set
           azd env set AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME "gpt-4.1-mini"
