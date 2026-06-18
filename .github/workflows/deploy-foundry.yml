@@ -60,6 +60,11 @@ jobs:
             --tenant ${{ secrets.AZURE_TENANT_ID }}
           az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
+      - name: Install azd AI agents extension
+        run: |
+          azd extension install azure.ai.agents --version latest
+          azd extension list
+      
       - name: Restore azd environment
         run: |
           azd env new ${{ secrets.AZURE_ENV_NAME }} --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }} --location ${{ secrets.AZURE_LOCATION }} || true
