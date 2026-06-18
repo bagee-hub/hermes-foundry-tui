@@ -76,15 +76,21 @@ jobs:
           azd env new ${{ secrets.AZURE_ENV_NAME }} --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }} --location ${{ secrets.AZURE_LOCATION }} || true
           azd env select ${{ secrets.AZURE_ENV_NAME }}
           
-          # Restore environment variables from local .env if available
-          if [ -f .azure/${{ secrets.AZURE_ENV_NAME }}/.env ]; then
-            echo "Using existing environment configuration"
-          else
-            echo "Setting up new environment"
-            azd env set AZURE_LOCATION ${{ secrets.AZURE_LOCATION }}
-          fi
+          # Set required environment variables
+          azd env set AZURE_LOCATION ${{ secrets.AZURE_LOCATION }}
           
-          azd env refresh
+          # Try to refresh from Azure (this will populate variables from existing resources)
+          azd env refresh || echo "No existing deployment found, will use manual configuration"
+          
+          # Set deployment-specific variables if not populated by refresh
+          azd env set AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME "gpt-4.1-mini" || true
+          azd env set AZURE_FOUNDRY_MODEL_NAME "gpt-4.1-mini" || true
+          azd env set AZURE_FOUNDRY_MODEL_API_MODE "chat_completions" || true
+          azd env set AZURE_FOUNDRY_AUTH_MODE "entra_id" || true
+          
+          # Show environment for debugging
+          echo "Environment variables set:"
+          azd env get-values | grep -E "AZURE_FOUNDRY|AZURE_AI" || echo "No Foundry variables found"
       
       - name: Deploy to Azure
         run: azd deploy --no-prompt
