@@ -80,17 +80,44 @@ jobs:
           azd env set AZURE_LOCATION ${{ secrets.AZURE_LOCATION }}
           
           # Try to refresh from Azure (this will populate variables from existing resources)
-          azd env refresh || echo "No existing deployment found, will use manual configuration"
+          echo "Refreshing environment from Azure..."
+          if azd env refresh; then
+            echo "✓ Environment refreshed from Azure"
+          else
+            echo "⚠ Could not refresh from Azure, setting variables manually"
+            
+            # Query Azure for resource information
+            RG_NAME=$(az group list --query "[?location=='${{ secrets.AZURE_LOCATION }}'].name | [0]" -o tsv)
+            AI_ACCOUNT=$(az cognitiveservices account list -g "$RG_NAME" --query "[0].name" -o tsv 2>/dev/null || echo "")
+            
+            if [ -n "$AI_ACCOUNT" ]; then
+              AI_ENDPOINT=$(az cognitiveservices account show -n "$AI_ACCOUNT" -g "$RG_NAME" --query "properties.endpoint" -o tsv)
+              OPENAI_ENDPOINT="${AI_ENDPOINT%/}"
+              
+              azd env set AZURE_RESOURCE_GROUP "$RG_NAME"
+              azd env set AZURE_AI_ACCOUNT_NAME "$AI_ACCOUNT"
+              azd env set AZURE_FOUNDRY_BASE_URL "$OPENAI_ENDPOINT"
+            fi
+          fi
           
-          # Set deployment-specific variables if not populated by refresh
-          azd env set AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME "gpt-4.1-mini" || true
-          azd env set AZURE_FOUNDRY_MODEL_NAME "gpt-4.1-mini" || true
-          azd env set AZURE_FOUNDRY_MODEL_API_MODE "chat_completions" || true
-          azd env set AZURE_FOUNDRY_AUTH_MODE "entra_id" || true
+          # Ensure critical Foundry variables are set
+          azd env set AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME "gpt-4.1-mini"
+          azd env set AZURE_FOUNDRY_MODEL_NAME "gpt-4.1-mini"
+          azd env set AZURE_FOUNDRY_MODEL_API_MODE "chat_completions"
+          azd env set AZURE_FOUNDRY_AUTH_MODE "entra_id"
+          
+          # Verify BASE_URL is set
+          BASE_URL=$(azd env get-value AZURE_FOUNDRY_BASE_URL || echo "")
+          if [ -z "$BASE_URL" ]; then
+            echo "ERROR: AZURE_FOUNDRY_BASE_URL is not set"
+            echo "Available environment variables:"
+            azd env get-values
+            exit 1
+          fi
           
           # Show environment for debugging
-          echo "Environment variables set:"
-          azd env get-values | grep -E "AZURE_FOUNDRY|AZURE_AI" || echo "No Foundry variables found"
+          echo "✓ Environment variables configured:"
+          azd env get-values | grep -E "AZURE_FOUNDRY|AZURE_AI|AZURE_RESOURCE_GROUP" || echo "No Foundry variables found"
       
       - name: Deploy to Azure
         run: azd deploy --no-prompt
