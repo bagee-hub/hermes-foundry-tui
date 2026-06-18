@@ -181,6 +181,20 @@ jobs:
       - name: Deploy to Azure
         run: |
           echo "Starting deployment..."
+          
+          # Ensure project name is set before deployment
+          PROJECT_NAME=$(azd env get-value AZURE_AI_PROJECT_NAME || echo "hermes-build")
+          echo "Project Name for deployment: $PROJECT_NAME"
+          
+          # Set it again just before deploy
+          azd env set AZURE_AI_PROJECT_NAME "$PROJECT_NAME"
+          
+          # Also try setting it as a shell environment variable
+          export AZURE_AI_PROJECT_NAME="$PROJECT_NAME"
+          export FOUNDRY_PROJECT_NAME="$PROJECT_NAME"
+          
           azd deploy --no-prompt
         env:
           AZURE_ENV_NAME: ${{ secrets.AZURE_ENV_NAME }}
+          AZURE_AI_PROJECT_NAME: hermes-build
+          FOUNDRY_PROJECT_NAME: hermes-build
