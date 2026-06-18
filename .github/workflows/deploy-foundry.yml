@@ -182,11 +182,13 @@ jobs:
         run: |
           echo "Starting deployment..."
           
-          # Ensure project name is set before deployment
+          # Get project name and extract just the name (not the full path)
           PROJECT_NAME=$(azd env get-value AZURE_AI_PROJECT_NAME || echo "hermes-build")
+          # If it contains a slash, extract just the last part
+          PROJECT_NAME=$(basename "$PROJECT_NAME")
           echo "Project Name for deployment: $PROJECT_NAME"
           
-          # Set it again just before deploy
+          # Set it again with just the name
           azd env set AZURE_AI_PROJECT_NAME "$PROJECT_NAME"
           
           # Also try setting it as a shell environment variable
