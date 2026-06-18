@@ -19,5 +19,5 @@ agent_endpoint:
   authorization_schemes:
     - type: Entra
       isolation_key_source:
-        kind: Header
+        kind: Token
 resources: []
