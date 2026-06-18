@@ -104,33 +104,19 @@ jobs:
           echo "AI Endpoint: $AI_ENDPOINT"
           echo "AI Account ID: $AI_ACCOUNT_ID"
           
-          # Get AI Foundry project - try multiple methods
+          # Get AI Foundry project - use known project name
           echo "Searching for AI Foundry project..."
           
-          # Method 1: List all resources and filter for projects
-          AI_PROJECT=$(az resource list -g "$RG_NAME" --query "[?type=='Microsoft.CognitiveServices/accounts/projects'].name | [0]" -o tsv 2>/dev/null || echo "")
+          # Use the known project name directly
+          AI_PROJECT="hermes-build"
           
-          # Method 2: If not found, try direct REST API call
-          if [ -z "$AI_PROJECT" ]; then
-            AI_PROJECT=$(az rest --method get --url "${AI_ACCOUNT_ID}/projects?api-version=2024-04-01-preview" --query "value[0].name" -o tsv 2>/dev/null || echo "")
-          fi
+          # Construct the correct project ID and endpoint
+          AI_PROJECT_ID="${AI_ACCOUNT_ID}/projects/${AI_PROJECT}"
+          AI_PROJECT_ENDPOINT="${AI_ENDPOINT}api/projects/${AI_PROJECT}"
           
-          # Method 3: Use known project name from provisioning
-          if [ -z "$AI_PROJECT" ]; then
-            echo "Could not query project, using default name 'hermes-build'"
-            AI_PROJECT="hermes-build"
-          fi
-          
-          if [ -n "$AI_PROJECT" ]; then
-            AI_PROJECT_ID="${AI_ACCOUNT_ID}/projects/${AI_PROJECT}"
-            AI_PROJECT_ENDPOINT="${AI_ENDPOINT}api/projects/${AI_PROJECT}"
-            echo "✓ AI Project: $AI_PROJECT"
-            echo "✓ AI Project ID: $AI_PROJECT_ID"
-            echo "✓ AI Project Endpoint: $AI_PROJECT_ENDPOINT"
-          else
-            echo "ERROR: Could not determine AI Foundry project name"
-            exit 1
-          fi
+          echo "✓ AI Project: $AI_PROJECT"
+          echo "✓ AI Project ID: $AI_PROJECT_ID"
+          echo "✓ AI Project Endpoint: $AI_PROJECT_ENDPOINT"
           
           # Construct OpenAI endpoint (remove trailing slash)
           OPENAI_ENDPOINT="${AI_ENDPOINT%/}"
