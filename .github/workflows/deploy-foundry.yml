@@ -146,6 +146,10 @@ jobs:
             azd env set AZURE_AI_PROJECT_NAME "$AI_PROJECT"
             azd env set AZURE_AI_PROJECT_ENDPOINT "$AI_PROJECT_ENDPOINT"
             azd env set AZURE_AI_FOUNDRY_PROJECT_ID "$AI_PROJECT_ID"
+            azd env set FOUNDRY_PROJECT_ID "$AI_PROJECT_ID"
+            azd env set FOUNDRY_PROJECT_ENDPOINT "$AI_PROJECT_ENDPOINT"
+            # Also set the Bicep parameter name
+            azd env set aiFoundryProjectName "$AI_PROJECT"
           fi
           
           # Try to refresh to get other variables
@@ -168,9 +172,15 @@ jobs:
           
           # Show environment for debugging
           echo "✓ Environment variables configured:"
-          azd env get-values | grep -E "AZURE_FOUNDRY|AZURE_AI|AZURE_RESOURCE_GROUP" || echo "No Foundry variables found"
+          azd env get-values | grep -E "AZURE_FOUNDRY|AZURE_AI|AZURE_RESOURCE_GROUP|FOUNDRY|aiFoundry" || echo "No Foundry variables found"
+          
+          echo ""
+          echo "=== All azd environment variables ==="
+          azd env get-values
       
       - name: Deploy to Azure
-        run: azd deploy --no-prompt
+        run: |
+          echo "Starting deployment..."
+          azd deploy --no-prompt
         env:
           AZURE_ENV_NAME: ${{ secrets.AZURE_ENV_NAME }}
