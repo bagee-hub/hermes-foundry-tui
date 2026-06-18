@@ -13,6 +13,7 @@ services:
             path: Dockerfile
             context: ..
         config:
+            projectName: hermes-build
             container:
                 resources:
                     cpu: "0.5"
