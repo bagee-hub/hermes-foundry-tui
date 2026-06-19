@@ -94,6 +94,9 @@ hooks:
                     exit 0
                 fi
 
+                echo "Agent managed identity principal ID: $AGENT_PRINCIPAL_ID"
+                
+                # Assign Cognitive Services OpenAI User role on AI Account
                 ROLE_DEFINITION_ID="/subscriptions/$SUBSCRIPTION_ID/providers/Microsoft.Authorization/roleDefinitions/$OPENAI_USER_ROLE_ID"
                 EXISTING="$(az role assignment list \
                     --assignee-object-id "$AGENT_PRINCIPAL_ID" \
@@ -102,11 +105,24 @@ hooks:
                     --query "[?roleDefinitionId=='$ROLE_DEFINITION_ID'].id | [0]" \
                     -o tsv 2>/dev/null || true)"
                 if [ -z "$EXISTING" ]; then
+                    echo "Assigning Cognitive Services OpenAI User role on AI Account..."
                     az role assignment create \
                         --assignee-object-id "$AGENT_PRINCIPAL_ID" \
                         --assignee-principal-type ServicePrincipal \
                         --role "$OPENAI_USER_ROLE_ID" \
                         --scope "$AI_ACCOUNT_ID" >/dev/null
+                fi
+                
+                # Assign Azure AI Developer role on AI Project (for routine creation)
+                AI_DEVELOPER_ROLE_ID="64702f94-c441-49e6-a78b-ef80e0188fee"
+                AI_PROJECT_ID="$(azd env get-value AZURE_AI_PROJECT_ID 2>/dev/null || true)"
+                if [ -n "$AI_PROJECT_ID" ]; then
+                    echo "Assigning Azure AI Developer role on AI Project..."
+                    az role assignment create \
+                        --assignee-object-id "$AGENT_PRINCIPAL_ID" \
+                        --assignee-principal-type ServicePrincipal \
+                        --role "$AI_DEVELOPER_ROLE_ID" \
+                        --scope "$AI_PROJECT_ID" 2>/dev/null || echo "Azure AI Developer role assignment may already exist"
                 fi
 
                 # Split-region mode: grant model access on the external AI Services account that hosts the models.
